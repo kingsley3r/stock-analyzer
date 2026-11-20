@@ -1,41 +1,37 @@
-# Your watchlist. Add or remove lines any time.
-# Symbols use Yahoo Finance format:
-#   US stocks: AAPL      Germany (Xetra): SAP.DE     Netherlands: ASML.AS
-#   Crypto:    BTC-USD   Indices start with ^ (e.g. ^GSPC = S&P 500)
+# Your watchlist. Last edited in the app on 2026-11-20.
+# Symbols use Yahoo Finance format: AAPL, SAP.DE, ASML.AS, BTC-USD, ^GSPC.
+# You can edit it in the app (Watchlist > Edit list) or here.
 
 indices:
-  - { symbol: "^GSPC",     name: "S&P 500" }
-  - { symbol: "^IXIC",     name: "Nasdaq" }
+  - { symbol: "^GSPC", name: "S&P 500" }
+  - { symbol: "^IXIC", name: "Nasdaq" }
   - { symbol: "^STOXX50E", name: "Euro Stoxx 50" }
-  - { symbol: "^GDAXI",    name: "DAX" }
-  - { symbol: "^VIX",      name: "VIX (fear index)" }
+  - { symbol: "^GDAXI", name: "DAX" }
+  - { symbol: "^VIX", name: "VIX (fear index)" }
 
 stocks:
-  # Big US names
-  - { symbol: AAPL,  name: Apple }
-  - { symbol: MSFT,  name: Microsoft,  tags: [ai] }
-  - { symbol: NVDA,  name: Nvidia,     tags: [ai] }
-  - { symbol: GOOGL, name: Alphabet,   tags: [ai] }
-  - { symbol: AMZN,  name: Amazon,     tags: [ai] }
-  - { symbol: META,  name: Meta,       tags: [ai] }
-  - { symbol: TSLA,  name: Tesla,      tags: [high-volume] }
-  # AI hardware and software
-  - { symbol: AMD,   name: AMD,        tags: [ai, high-volume] }
-  - { symbol: AVGO,  name: Broadcom,   tags: [ai] }
-  - { symbol: TSM,   name: TSMC,       tags: [ai] }
-  - { symbol: PLTR,  name: Palantir,   tags: [ai, high-volume] }
-  - { symbol: ORCL,  name: Oracle,     tags: [ai] }
-  - { symbol: INTC,  name: Intel,      tags: [high-volume] }
-  - { symbol: SOFI,  name: SoFi,       tags: [high-volume] }
-  # Europe
-  - { symbol: ASML.AS,   name: ASML,      tags: [ai, europe] }
-  - { symbol: SAP.DE,    name: SAP,       tags: [ai, europe] }
-  - { symbol: IFX.DE,    name: Infineon,  tags: [ai, europe] }
-  - { symbol: SIE.DE,    name: Siemens,   tags: [europe] }
-  - { symbol: MC.PA,     name: LVMH,      tags: [europe] }
-  - { symbol: NOVO-B.CO, name: Novo Nordisk, tags: [europe] }
+  - { symbol: "AAPL", name: "Apple" }
+  - { symbol: "MSFT", name: "Microsoft", tags: ["ai"] }
+  - { symbol: "NVDA", name: "Nvidia", tags: ["ai"] }
+  - { symbol: "GOOGL", name: "Alphabet", tags: ["ai"] }
+  - { symbol: "AMZN", name: "Amazon", tags: ["ai"] }
+  - { symbol: "META", name: "Meta", tags: ["ai"] }
+  - { symbol: "TSLA", name: "Tesla", tags: ["high-volume"] }
+  - { symbol: "AMD", name: "AMD", tags: ["ai", "high-volume"] }
+  - { symbol: "AVGO", name: "Broadcom", tags: ["ai"] }
+  - { symbol: "TSM", name: "TSMC", tags: ["ai"] }
+  - { symbol: "PLTR", name: "Palantir", tags: ["ai", "high-volume"] }
+  - { symbol: "ORCL", name: "Oracle", tags: ["ai"] }
+  - { symbol: "INTC", name: "Intel", tags: ["high-volume"] }
+  - { symbol: "SOFI", name: "SoFi", tags: ["high-volume"] }
+  - { symbol: "ASML.AS", name: "ASML", tags: ["ai", "europe"] }
+  - { symbol: "SAP.DE", name: "SAP", tags: ["ai", "europe"] }
+  - { symbol: "IFX.DE", name: "Infineon", tags: ["ai", "europe"] }
+  - { symbol: "SIE.DE", name: "Siemens", tags: ["europe"] }
+  - { symbol: "MC.PA", name: "LVMH", tags: ["europe"] }
+  - { symbol: "NOVO-B.CO", name: "Novo Nordisk", tags: ["europe"] }
 
 crypto:
-  - { symbol: BTC-USD, name: Bitcoin }
-  - { symbol: ETH-USD, name: Ethereum }
-  - { symbol: SOL-USD, name: Solana }
+  - { symbol: "BTC-USD", name: "Bitcoin" }
+  - { symbol: "ETH-USD", name: "Ethereum" }
+  - { symbol: "SOL-USD", name: "Solana" }
