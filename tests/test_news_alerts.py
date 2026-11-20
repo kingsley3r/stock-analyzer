@@ -43,7 +43,7 @@ def test_already_sent_is_skipped_and_state_saved(tmp_path, monkeypatch):
     state = tmp_path / "alerts.json"
     quotes = [{"symbol": "NVDA", "change_1d": -2.5}]
     assert news_alerts.run([a], WATCH, quotes, {}, state, "t", "c") == 1
-    assert "🔴 -2.50% today" in sent_texts[0] and "Nvidia" in sent_texts[0]
+    assert "🔴 -2.5% today" in sent_texts[0] and "Nvidia" in sent_texts[0]
     assert news_alerts.fingerprint(a) in json.loads(state.read_text())
     assert news_alerts.run([a], WATCH, quotes, {}, state, "t", "c") == 0
     assert len(sent_texts) == 1
@@ -91,8 +91,8 @@ def test_alert_with_ai_summary(tmp_path, monkeypatch):
     monkeypatch.setattr(ai, "explain_alerts", lambda items, model, effort: {
         fp: {"id": fp, "summary": "Nvidia earned more than expected.", "impact": "up", "why": "Strong demand <AI>."}})
     news_alerts.run([a], WATCH, [], {}, tmp_path / "s.json", "t", "c")
-    assert "📝 Nvidia earned more than expected." in sent[0]
-    assert "Likely effect: 🟢 up." in sent[0] and "&lt;AI&gt;" in sent[0]
+    assert sent[0].startswith("📈 <b>LIKELY UP · NVDA</b>")
+    assert "💬 Nvidia earned more than expected." in sent[0] and "&lt;AI&gt;" in sent[0]
 
 
 def test_alert_still_sent_when_ai_fails(tmp_path, monkeypatch):
@@ -103,3 +103,18 @@ def test_alert_still_sent_when_ai_fails(tmp_path, monkeypatch):
     monkeypatch.setattr(ai, "explain_alerts", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
     news_alerts.run([art("Nvidia beats earnings estimates")], WATCH, [], {}, tmp_path / "s.json", "t", "c")
     assert len(sent) == 1 and "📝" not in sent[0]
+
+
+def test_styles_and_buttons():
+    a = art("Nvidia beats earnings estimates", mins_ago=12, symbol="NVDA")
+    q = {"symbol": "NVDA", "change_1d": 2.5, "last": 186.2, "currency": "$", "file": "NVDA"}
+    ex = {"summary": "Revenue beat.", "impact": "down", "why": "Priced in."}
+    now = a.published + 12 * 60
+    b = news_alerts.format_alert(a, {"symbol": "NVDA", "name": "Nvidia"}, q, now, ex, "B")
+    assert b.splitlines()[0] == "📉 <b>LIKELY DOWN · NVDA</b>" and "$186.20 🟢 +2.5% today" in b and "12 min ago" in b
+    a_ = news_alerts.format_alert(a, {"symbol": "NVDA", "name": "Nvidia"}, q, now, ex, "A")
+    assert a_.startswith("🟢 <b>NVDA · Nvidia</b> · $186.20 (+2.5%)")
+    c = news_alerts.format_alert(a, {"symbol": "NVDA", "name": "Nvidia"}, q, now, ex, "C")
+    assert "<blockquote>Revenue beat.</blockquote>" in c
+    kb = news_alerts.buttons(a, q)["inline_keyboard"][0]
+    assert kb[0]["url"] == a.link and kb[1]["url"].endswith("#/s/NVDA")

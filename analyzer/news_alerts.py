@@ -99,25 +99,58 @@ def pick_alerts(articles: list[Article], watchlist: dict, sent: dict, now: float
     return picked
 
 
-IMPACT = {"up": "📈 <b>Likely effect: 🟢 up.</b>", "down": "📉 <b>Likely effect: 🔴 down.</b>",
-          "unclear": "↔️ <b>Likely effect: ⚪ unclear.</b>"}
+VERDICT = {"up": ("📈", "LIKELY UP", "🟢"), "down": ("📉", "LIKELY DOWN", "🔴"),
+           "unclear": ("↔️", "UNCLEAR EFFECT", "⚪")}
+APP_URL = "https://kingsley3r.github.io/stock-analyzer/"
 
 
 def format_alert(article: Article, item: dict, quote: dict | None, now: float,
-                 explained: dict | None = None) -> str:
+                 explained: dict | None = None, style: str = "B") -> str:
+    """One alert as Telegram HTML. Styles: A compact, B verdict first, C clean."""
+    e = html.escape
     mins = max(0, int((now - article.published) // 60))
     ago = f"{mins} min ago" if mins < 60 else f"{mins // 60} h ago"
-    move = ""
-    if quote and quote.get("change_1d") is not None:
-        ch = quote["change_1d"]
-        move = f"  {'🟢' if ch >= 0 else '🔴'} {ch:+.2f}% today"
     source = re.sub(r"^Yahoo \(.*\)$", "Yahoo Finance", article.source)
-    text = (f"🚨 <b>{html.escape(item['name'])}</b> ({html.escape(item['symbol'])}){move}\n"
-            f"<a href=\"{html.escape(article.link, quote=True)}\">{html.escape(article.title)}</a>\n")
-    if explained:
-        text += (f"📝 {html.escape(explained['summary'])}\n"
-                 f"{IMPACT.get(explained['impact'], IMPACT['unclear'])} {html.escape(explained['why'])}\n")
-    return text + f"<i>{html.escape(source)} · {ago}</i>"
+    name, symbol = e(item["name"]), e(item["symbol"])
+    ch = quote.get("change_1d") if quote else None
+    dot = "" if ch is None else ("🟢" if ch >= 0 else "🔴")
+    pct = "" if ch is None else f"{ch:+.1f}%"
+    price = ""
+    if quote and quote.get("last") is not None:
+        cur = quote.get("currency") or ""
+        price = f"{cur}{quote['last']:,.2f}"
+    icon, label, _ = VERDICT.get((explained or {}).get("impact"), VERDICT["unclear"])
+    summary = e(explained["summary"]) if explained else ""
+    why = e(explained["why"]) if explained else ""
+    title = e(article.title)
+
+    if style == "A":
+        lines = [f"{dot or '🚨'} <b>{symbol} · {name}</b>" + (f" · {price} ({pct})" if price and pct else ""),
+                 f"<b>{title}</b>"]
+        if explained:
+            lines += [summary, f"{icon} <b>{label.title()}:</b> {why}"]
+        lines.append(f"<i>{e(source)} · {ago}</i>")
+    elif style == "C":
+        lines = [f"🚨 <b>{name} ({symbol})</b> {dot} {pct}".rstrip(), f"<i>{title}</i>"]
+        if explained:
+            lines += [f"<blockquote>{summary}</blockquote>", f"{icon} <b>{label.capitalize()}</b>: {why}"]
+        lines.append(f"<i>{e(source)} · {ago}</i>")
+    else:  # B: verdict first, so the iPhone lock screen shows it
+        head = f"{icon} <b>{label} · {symbol}</b>" if explained else f"🚨 <b>NEWS · {symbol}</b>"
+        lines = [head, "━━━━━━━━━━━━━━",
+                 f"<b>{name}</b>" + (f" · {price}" if price else "") + (f" {dot} {pct} today" if pct else ""),
+                 f"📰 {title}"]
+        if explained:
+            lines += [f"💬 {summary}", f"💡 <b>Why:</b> {why}"]
+        lines.append(f"🕒 {e(source)} · {ago}")
+    return "\n".join(lines)
+
+
+def buttons(article: Article, quote: dict | None) -> dict:
+    row = [{"text": "📰 Read article", "url": article.link}]
+    if quote and quote.get("file"):
+        row.append({"text": "📊 Open in app", "url": f"{APP_URL}#/s/{quote['file']}"})
+    return {"inline_keyboard": [row]}
 
 
 def explain(picked, quotes_by_symbol: dict, cfg: dict) -> dict[str, dict]:
@@ -199,10 +232,13 @@ def run(articles: list[Article], watchlist: dict, quotes: list[dict], settings: 
         return 0
     by_symbol = {q["symbol"]: q for q in quotes}
     explained = explain(picked, by_symbol, cfg)
-    text = "\n\n".join(format_alert(a, it, by_symbol.get(it["symbol"]), now, explained.get(fingerprint(a)))
-                         for a, it, _ in picked)
-    telegram._call(token, "sendMessage", chat_id=chat_id, text=text, parse_mode="HTML",
-                   disable_notification=silent, link_preview_options={"is_disabled": True})
+    style = str(cfg.get("style", "B")).upper()
+    for a, it, _ in picked:  # one message per headline, each with its own buttons
+        quote = by_symbol.get(it["symbol"])
+        telegram._call(token, "sendMessage", chat_id=chat_id, parse_mode="HTML",
+                       text=format_alert(a, it, quote, now, explained.get(fingerprint(a)), style),
+                       reply_markup=buttons(a, quote), disable_notification=silent,
+                       link_preview_options={"is_disabled": True})
     for a, _, _ in picked:
         sent[fingerprint(a)] = int(now)
     sent = {k: v for k, v in sent.items() if now - v < 3 * 86400}  # forget after 3 days
