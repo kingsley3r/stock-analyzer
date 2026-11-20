@@ -17,7 +17,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import news, prices, telegram, track_record, youtube
+from . import news, news_alerts, prices, telegram, track_record, youtube
 from .lock import Locker
 from .config import ROOT, load_dotenv, load_yaml
 
@@ -228,6 +228,14 @@ def build() -> None:
         "videos": [v.to_dict() | {"id": v.video_id} for v in videos],
     }
     write(SITE_DATA / "latest.json", latest)
+
+    # Breaking-news alerts to Telegram. A problem here must never stop the dashboard.
+    try:
+        news_alerts.run(articles, watchlist, quotes, load_yaml("settings.yaml"),
+                        record_file.parent / "alerts.json",
+                        os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID"))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("News alerts failed: %s", exc)
     # lock.json tells the website whether (and how) the data is locked.
     (SITE_DATA / "lock.json").write_text(json.dumps(locker.header() if locker else {"v": 0}), encoding="utf-8")
     log.info("Encrypted with your password: %s", bool(locker))

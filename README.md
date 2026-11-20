@@ -118,6 +118,19 @@ To add something, type a company name or symbol in the search box ("netflix", "b
 the right result. The list comes from `site/symbols.js` (popular US, European, crypto and index
 symbols) plus Finnhub's symbol search when `FINNHUB_API_KEY` is set.
 
+**⭐ Favorites:** tap ☆ next to any stock (or on its page) to pin it to the top of the Watchlist
+and to the Today page. Use **↕️ Reorder** to change the order. Favorites are saved on your phone.
+
+**Logos:** company logos come from Financial Modeling Prep's free logo images, coin icons from the
+open-source cryptocurrency-icons set, and news site icons from Google. If a logo is missing, a
+colored circle with the first letters is shown.
+
+**🚨 News alerts (Telegram):** with every dashboard update (every 15 minutes) the app checks the
+news. When a headline from the last hour names one of your watchlist stocks or coins *and* contains
+a market-moving word (earnings, downgrade, lawsuit, merger, plunge, ...), the bot sends you an
+alert with the link and today's price move. Free, no AI. Between 23:00 and 07:00 alerts arrive
+silently. Settings: `news_alerts` in `config/settings.yaml`; the word list is in `analyzer/news_alerts.py`.
+
 The **🕒 Markets** card on the Today tab shows when New York, Frankfurt, Vienna and London open
 and close, in Istanbul time, with a countdown. Public holidays are not included.
 

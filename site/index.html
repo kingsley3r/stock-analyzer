@@ -24,6 +24,15 @@
   <script src="app.js" defer></script>
 </head>
 <body>
+  <!-- Opening animation: the app logo draws itself, then fades away (about 1.5 s, tap to skip). -->
+  <div id="splash" aria-hidden="true">
+    <svg viewBox="0 0 192 192" class="splash-logo">
+      <line class="base" x1="34" y1="153" x2="158" y2="153"/>
+      <polyline class="pulse" points="34,128 68,98 96,116 126,72 157,49"/>
+      <circle class="dot" cx="157" cy="49" r="11"/>
+    </svg>
+    <div class="splash-name">Market Pulse</div>
+  </div>
   <header class="topbar">
     <div>
       <h1 id="page-title">Today</h1>

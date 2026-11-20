@@ -9,3 +9,11 @@ ai:
 telegram:
   # Telegram messages are limited to 4096 characters; longer digests are split.
   max_message_length: 4000
+
+news_alerts:
+  # Telegram alert when important news about a watchlist stock or coin comes in
+  # (checked with every dashboard update, every 15 minutes). Free: no AI is used.
+  enabled: true
+  max_per_update: 3        # at most this many headlines per message
+  window_minutes: 60       # only news from the last hour
+  quiet_hours: [23, 7]     # Istanbul time: alerts still arrive, but without sound

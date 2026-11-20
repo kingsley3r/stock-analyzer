@@ -49,6 +49,53 @@ function sparkline(values, change) {
     <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
 }
 
+// ---------------------------------------------------------------- logos
+// Company logos come from Financial Modeling Prep's free image service and coin
+// icons from the open-source "cryptocurrency-icons" set. If a logo is missing,
+// a colored circle with the first letters is shown instead.
+
+const INDEX_FLAG = { "^GSPC": "🇺🇸", "^IXIC": "🇺🇸", "^NDX": "🇺🇸", "^DJI": "🇺🇸", "^RUT": "🇺🇸", "^VIX": "😨",
+  "^STOXX50E": "🇪🇺", "^GDAXI": "🇩🇪", "^FCHI": "🇫🇷", "^FTSE": "🇬🇧", "^ATX": "🇦🇹", "^N225": "🇯🇵" };
+const isCrypto = (symbol) => /-(USD|EUR|USDT)$/.test(symbol);
+
+function logo(symbol, name, size = "") {
+  symbol = String(symbol || "");
+  if (symbol.startsWith("^")) return `<span class="logo flag ${size}">${INDEX_FLAG[symbol] || "📊"}</span>`;
+  const hue = [...symbol].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+  const letters = esc(String(name || symbol).replace(/[^A-Za-z0-9 ]/g, "").split(" ").filter(Boolean)
+    .slice(0, 2).map((w) => w[0]).join("").toUpperCase() || symbol.slice(0, 2));
+  const src = isCrypto(symbol)
+    ? `https://cdn.jsdelivr.net/npm/cryptocurrency-icons@0.18.1/svg/color/${symbol.split("-")[0].toLowerCase()}.svg`
+    : `https://financialmodelingprep.com/image-stock/${encodeURIComponent(symbol)}.png`;
+  return `<span class="logo ${size} ${isCrypto(symbol) ? "coin" : ""}" style="--h:${hue}"><i>${letters}</i><img class="lg" src="${src}" alt="" loading="lazy" referrerpolicy="no-referrer"></span>`;
+}
+
+function siteIcon(link, size = "sm") {
+  let host = "";
+  try { host = new URL(link).hostname; } catch (e) { /* ignore */ }
+  return `<span class="logo site ${size}"><i>📰</i>${host ? `<img class="lg" src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}</span>`;
+}
+
+// A logo that fails to load is removed, so the letters behind it show.
+document.addEventListener("error", (e) => { if (e.target.matches?.("img.lg")) e.target.remove(); }, true);
+document.addEventListener("load", (e) => { if (e.target.matches?.("img.lg")) e.target.classList.add("ok"); }, true);
+
+// ---------------------------------------------------------------- favorites
+// Saved on this phone. Order = order shown on the Today page and in the Watchlist.
+const favs = {
+  list() { try { return JSON.parse(localStorage.getItem("favs") || "[]"); } catch (e) { return []; } },
+  save(l) { try { localStorage.setItem("favs", JSON.stringify(l)); } catch (e) { /* ignore */ } },
+  has(sym) { return this.list().includes(sym); },
+  toggle(sym) { const l = this.list(); this.save(l.includes(sym) ? l.filter((x) => x !== sym) : [...l, sym]); },
+  move(sym, step) {
+    const l = this.list(), i = l.indexOf(sym), j = i + step;
+    if (i < 0 || j < 0 || j >= l.length) return;
+    [l[i], l[j]] = [l[j], l[i]]; this.save(l);
+  },
+  quotes() { return this.list().map((s) => quoteFor(s)).filter(Boolean); },
+};
+const starBtn = (sym) => `<button class="star ${favs.has(sym) ? "on" : ""}" data-star="${esc(sym)}" aria-label="Favorite ${esc(sym)}">${favs.has(sym) ? "★" : "☆"}</button>`;
+
 const SIGNAL_EMOJI = { buy: "🟢", sell: "🔴", avoid: "⛔", hold: "🟡", watch: "👀" };
 const signalFor = (symbol) => (state.data?.digest?.signals || []).find((s) => s.symbol === symbol);
 const quoteFor = (symbol) => state.data.quotes.find((q) => q.symbol === symbol);
@@ -158,6 +205,24 @@ const EXCHANGES = [
   { id: "at", flag: "🇦🇹", name: "Vienna", tz: "Europe/Vienna", open: [9, 0], close: [17, 30] },
   { id: "uk", flag: "🇬🇧", name: "London", tz: "Europe/London", open: [8, 0], close: [16, 30] },
 ];
+// Other European exchanges, for single-stock pages (by Yahoo symbol ending).
+const VENUES = Object.fromEntries(EXCHANGES.map((x) => [x.id, x]));
+Object.assign(VENUES, {
+  AS: { flag: "🇳🇱", name: "Amsterdam", tz: "Europe/Amsterdam", open: [9, 0], close: [17, 30] },
+  PA: { flag: "🇫🇷", name: "Paris", tz: "Europe/Paris", open: [9, 0], close: [17, 30] },
+  MI: { flag: "🇮🇹", name: "Milan", tz: "Europe/Rome", open: [9, 0], close: [17, 30] },
+  MC: { flag: "🇪🇸", name: "Madrid", tz: "Europe/Madrid", open: [9, 0], close: [17, 30] },
+  SW: { flag: "🇨🇭", name: "Zurich (SIX)", tz: "Europe/Zurich", open: [9, 0], close: [17, 30] },
+  CO: { flag: "🇩🇰", name: "Copenhagen", tz: "Europe/Copenhagen", open: [9, 0], close: [17, 0] },
+  ST: { flag: "🇸🇪", name: "Stockholm", tz: "Europe/Stockholm", open: [9, 0], close: [17, 30] },
+  HE: { flag: "🇫🇮", name: "Helsinki", tz: "Europe/Helsinki", open: [10, 0], close: [18, 30] },
+  OL: { flag: "🇳🇴", name: "Oslo", tz: "Europe/Oslo", open: [9, 0], close: [16, 20] },
+  BR: { flag: "🇧🇪", name: "Brussels", tz: "Europe/Brussels", open: [9, 0], close: [17, 30] },
+  LS: { flag: "🇵🇹", name: "Lisbon", tz: "Europe/Lisbon", open: [8, 0], close: [16, 30] },
+  IR: { flag: "🇮🇪", name: "Dublin", tz: "Europe/Dublin", open: [8, 0], close: [16, 30] },
+});
+Object.entries(VENUES).forEach(([id, v]) => { v.id = id; });
+
 const WEEKDAY = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 0 };
 
 function tzNow(tz, at = new Date()) {
@@ -216,17 +281,27 @@ function marketsCard() {
 
 function exchangeFor(q) {
   if (q.group === "crypto") return null;
+  const suffix = q.symbol.includes(".") ? q.symbol.split(".").pop() : "";
+  if (VENUES[suffix] && suffix.length === 2 && suffix === suffix.toUpperCase()) return suffix;
   if (q.group === "index") return /^\^(GDAXI|STOXX50E|FCHI)$/.test(q.symbol) ? "de" : q.symbol === "^FTSE" ? "uk" : q.symbol === "^ATX" ? "at" : /^\^(GSPC|NDX|IXIC|DJI|RUT|VIX)$/.test(q.symbol) ? "us" : null;
   if (q.symbol.endsWith(".VI")) return "at";
   if (q.symbol.endsWith(".L")) return "uk";
   return (q.tags || []).includes("europe") || q.symbol.includes(".") ? "de" : "us";
 }
 
+function marketLine(q) {
+  if (q.group === "crypto") return `<div class="hero-clock"><span class="m-open">🟢 Open</span> · crypto trades 24 hours, 7 days a week</div>`;
+  const ex = VENUES[exchangeFor(q)];
+  if (!ex) return "";
+  return `<div class="hero-clock">${ex.flag} <b>${ex.name}</b> · ${marketTag(ex.id)}
+    <div class="s">Trading hours ${istanbulHours(ex)} Istanbul time (local ${hhmm(ex.open)}–${hhmm(ex.close)})</div></div>`;
+}
+
 function marketTag(id) { return `<span class="mtag" data-mclock="${id}"></span>`; }
 
 function tickClocks() {
   document.querySelectorAll("[data-mclock]").forEach((el) => {
-    const ex = EXCHANGES.find((x) => x.id === el.dataset.mclock);
+    const ex = VENUES[el.dataset.mclock];
     if (!ex) return;
     const st = statusText(ex);
     const cls = st.open ? "m-open" : "m-closed";
@@ -247,11 +322,15 @@ function pageToday() {
   return `
     <div class="chips">${indices.map((q) => `
       <a class="chip" href="#/s/${q.file}">
-        <div class="label">${esc(q.name)}</div>
+        <div class="label">${INDEX_FLAG[q.symbol] || "📊"} ${esc(q.name)}</div>
         <div class="value num">${livePrice(q, false)}</div>
         <div class="num" style="font-size:13px;font-weight:600">${liveChange(q)}</div>
       </a>`).join("")}
     </div>
+
+    <h2 class="section-title">⭐ Your favorites</h2>
+    ${favs.quotes().length ? `<div class="list">${favs.quotes().map((q) => row(q)).join("")}</div>`
+      : `<a class="card empty" href="#/watchlist">Tap ☆ next to a stock in your Watchlist to pin it here. ›</a>`}
 
     ${marketsCard()}
 
@@ -286,7 +365,7 @@ function signalCard(s) {
   return `<a class="card signal" href="${href}">
     <div class="signal-head">
       <span class="badge ${s.action}">${SIGNAL_EMOJI[s.action] || ""} ${esc(s.label)}</span>
-      <span class="sym">${esc(s.symbol)}</span><span class="name">${esc(s.name || q?.name || "")}</span>
+      ${logo(s.symbol, s.name || q?.name, "sm")}<span class="sym">${esc(s.symbol)}</span><span class="name">${esc(s.name || q?.name || "")}</span>
       ${s.confidence ? `<span class="conf">${"⭐".repeat({ Low: 1, Medium: 2, High: 3 }[s.confidence] || 0)} ${esc(s.confidence)}</span>` : ""}
     </div>
     ${q ? `<div class="num" style="margin-top:6px;font-size:14px">${livePrice(q)} &nbsp;${livePill(q)}</div>` : ""}
@@ -294,9 +373,10 @@ function signalCard(s) {
   </a>`;
 }
 
-function row(q) {
+function row(q, opts = {}) {
   const sig = signalFor(q.symbol);
-  return `<a class="row" href="#/s/${q.file}">
+  return `<a class="row ${opts.star ? "has-star" : ""}" href="#/s/${q.file}">
+    ${logo(q.symbol, q.name)}
     <div class="who">
       <div class="t">${sig ? SIGNAL_EMOJI[sig.action] + " " : ""}${esc(q.name)}</div>
       <div class="s">${esc(q.symbol)}</div>
@@ -306,21 +386,46 @@ function row(q) {
       <div class="p num">${livePrice(q)}</div>
       ${livePill(q)}
     </div>
+    ${opts.star ? starBtn(q.symbol) : ""}
   </a>`;
 }
 
 function pageWatchlist() {
   if (state.editing) return pageEditWatchlist();
   const q = state.data.quotes;
-  const us = q.filter((x) => x.group === "stock" && !(x.tags || []).includes("europe"));
-  const eu = q.filter((x) => x.group === "stock" && (x.tags || []).includes("europe"));
-  const crypto = q.filter((x) => x.group === "crypto");
-  const block = (title, items) => items.length ? `<h2 class="section-title">${title}</h2><div class="list">${items.map(row).join("")}</div>` : "";
+  const fav = favs.quotes(), notFav = (x) => !favs.has(x.symbol);
+  const us = q.filter((x) => x.group === "stock" && !(x.tags || []).includes("europe") && notFav(x));
+  const eu = q.filter((x) => x.group === "stock" && (x.tags || []).includes("europe") && notFav(x));
+  const crypto = q.filter((x) => x.group === "crypto" && notFav(x));
+  const block = (title, items) => items.length ? `<h2 class="section-title">${title}</h2><div class="list">${items.map((x) => row(x, { star: true })).join("")}</div>` : "";
+  const favBlock = !fav.length ? `<p class="hint fav-hint">Tip: tap ☆ to pin a stock to the top and to your Today page.</p>`
+    : state.reorder ? `<h2 class="section-title">⭐ Favorites <button class="pill-btn small" data-act="reorder-done">✓ Done</button></h2>
+        <div class="list">${fav.map((x, i) => `<div class="row edit-row">${logo(x.symbol, x.name)}
+          <div class="who"><div class="t">${esc(x.name)}</div><div class="s">${esc(x.symbol)}</div></div>
+          <button class="mv" data-move="${esc(x.symbol)}" data-step="-1" ${i ? "" : "disabled"} aria-label="Move up">▲</button>
+          <button class="mv" data-move="${esc(x.symbol)}" data-step="1" ${i < fav.length - 1 ? "" : "disabled"} aria-label="Move down">▼</button>
+          ${starBtn(x.symbol)}</div>`).join("")}</div>`
+    : `<h2 class="section-title">⭐ Favorites ${fav.length > 1 ? `<button class="pill-btn small" data-act="reorder">↕️ Reorder</button>` : ""}</h2>
+        <div class="list">${fav.map((x) => row(x, { star: true })).join("")}</div>`;
   return `<div class="edit-bar"><span class="sub">${q.filter((x) => x.live && live.prices[x.symbol]).length ? "● Some prices are live" : "Prices refresh every 15 minutes"}</span>
       <button class="pill-btn" data-act="edit">✏️ Edit list</button></div>` +
     (state.flash ? `<div class="card notice">${state.flash}</div>` : "") +
-    block(`🇺🇸 US stocks ${marketTag("us")}`, us) + block(`🇪🇺 Europe ${marketTag("de")}`, eu) + block("₿ Crypto", crypto) +
+    favBlock + block(`🇺🇸 US stocks ${marketTag("us")}`, us) + block(`🇪🇺 Europe ${marketTag("de")}`, eu) + block("₿ Crypto", crypto) +
     `<p class="disclaimer">Prices from Yahoo Finance (European stocks about 15 min delayed). Live where marked ● LIVE.</p>`;
+}
+
+// Which of your stocks a headline is about (by symbol from the feed, or name in the title).
+function newsSymbol(n) {
+  if (n.symbol) return n.symbol;
+  if (n._sym !== undefined) return n._sym;
+  const hit = state.data.quotes.find((q) => q.group !== "index" && q.name.length >= 3 &&
+    (new RegExp(`\\b${q.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(n.title) ||
+     (q.symbol.split(/[.-]/)[0].length >= 3 && new RegExp(`\\b${q.symbol.split(/[.-]/)[0]}\\b`).test(n.title))));
+  return (n._sym = hit ? hit.symbol : null);
+}
+function newsLogo(n) {
+  const sym = newsSymbol(n);
+  return sym ? logo(sym, quoteFor(sym)?.name, "sm") : siteIcon(n.link);
 }
 
 function pageNews() {
@@ -328,7 +433,7 @@ function pageNews() {
   const cryptoWords = /bitcoin|crypto|ethereum|solana|btc|eth\b|coin/i;
   const filters = {
     all: () => true,
-    mine: (n) => n.symbol,
+    mine: (n) => newsSymbol(n),
     crypto: (n) => cryptoWords.test(n.title) || /coin/i.test(n.source),
     ai: (n) => /\bAI\b|artificial intelligence|nvidia|openai|chip/i.test(n.title),
   };
@@ -337,8 +442,8 @@ function pageNews() {
   return `<div class="filters">${btn("all", "All")}${btn("mine", "📈 My stocks")}${btn("ai", "🤖 AI")}${btn("crypto", "₿ Crypto")}</div>
     <div class="list">${items.length ? items.map((n) => `
       <a class="news-item" href="${esc(n.link)}" target="_blank" rel="noopener">
-        <div class="meta">${esc(n.source.replace(/^Yahoo \(.*\)$/, "Yahoo Finance"))} · ${timeAgo(n.ts)}${n.symbol ? `<span class="tag">${esc(n.symbol)}</span>` : ""}</div>
-        <div class="title">${esc(n.title)}</div>
+        ${newsLogo(n)}<div class="nbody"><div class="meta">${esc(n.source.replace(/^Yahoo \(.*\)$/, "Yahoo Finance"))} · ${timeAgo(n.ts)}${newsSymbol(n) ? `<span class="tag">${esc(newsSymbol(n))}</span>` : ""}</div>
+        <div class="title">${esc(n.title)}</div></div>
       </a>`).join("") : `<div class="empty">No articles for this filter.</div>`}</div>`;
 }
 
@@ -440,8 +545,10 @@ function pageDetail(file) {
   return `
     <a class="back" href="#/watchlist">‹ Watchlist</a>
     <div class="hero">
-      <div style="color:var(--ink-3);font-size:14px">${esc(q.symbol)} · ${esc(q.name)}</div>
-      ${exchangeFor(q) ? `<div class="hero-clock">${marketTag(exchangeFor(q))}</div>` : ""}
+      <div class="hero-top">${logo(q.symbol, q.name, "lg")}
+        <div class="hero-name"><div class="t">${esc(q.name)}</div><div class="s">${esc(q.symbol)}</div></div>
+        ${q.group !== "index" ? starBtn(q.symbol) : ""}</div>
+      ${marketLine(q)}
       <div class="big num">${livePrice(q)}</div>
       <div class="chg num">${liveChange(q)} today ${q.live ? `<span class="live-tag" data-livetag="${esc(q.symbol)}">${live.prices[q.symbol] ? "● LIVE" : "○ connecting"}</span>` : `· last price ${esc(q.last_date)}, may be delayed`}</div>
     </div>
@@ -706,7 +813,7 @@ function pageEditWatchlist() {
   const items = state.draft;
   const group = (m) => items.filter((i) => i.market === m);
   const block = (m) => group(m).length ? `<h2 class="section-title">${MARKETS[m]}</h2><div class="list">${group(m).map((i) => `
-      <div class="row edit-row"><div class="who"><div class="t">${esc(i.name || i.symbol)}</div><div class="s">${esc(i.symbol)}</div></div>
+      <div class="row edit-row">${logo(i.symbol, i.name, "sm")}<div class="who"><div class="t">${esc(i.name || i.symbol)}</div><div class="s">${esc(i.symbol)}</div></div>
       <button class="remove" data-remove="${esc(i.symbol)}" aria-label="Remove ${esc(i.symbol)}">✕</button></div>`).join("")}</div>` : "";
   return `
     <div class="edit-bar"><b>✏️ Edit watchlist</b><button class="pill-btn" data-act="cancel">Cancel</button></div>
@@ -851,7 +958,7 @@ function showSuggestions(results, q) {
   const typed = q.trim().toUpperCase();
   const rows = results.map((r) => `
     <button type="button" class="opt" data-pick="${esc(r.symbol)}" data-name="${esc(r.name)}" data-market="${r.market}" ${have.has(r.symbol) ? "disabled" : ""}>
-      <span class="who"><span class="t">${esc(r.name)}</span><span class="s">${esc(r.symbol)}</span></span>
+      ${logo(r.symbol, r.name, "sm")}<span class="who"><span class="t">${esc(r.name)}</span><span class="s">${esc(r.symbol)}</span></span>
       <span class="mk">${have.has(r.symbol) ? "✓ on list" : MARKET_TAG[r.market]}</span>
     </button>`);
   if (/^[\^A-Z0-9][A-Z0-9.\-=^]{0,14}$/.test(typed) && !results.some((r) => r.symbol === typed) && !have.has(typed)) {
@@ -924,6 +1031,10 @@ function render() {
 view.addEventListener("click", (e) => {
   const b = e.target.closest("button");
   if (!b) return;
+  if (b.dataset.star) { e.preventDefault(); e.stopPropagation(); favs.toggle(b.dataset.star); render(); return; }
+  if (b.dataset.move) { favs.move(b.dataset.move, Number(b.dataset.step)); render(); return; }
+  if (b.dataset.act === "reorder") { state.reorder = true; render(); return; }
+  if (b.dataset.act === "reorder-done") { state.reorder = false; render(); return; }
   if (b.dataset.filter) { state.newsFilter = b.dataset.filter; render(); }
   if (b.dataset.vsort) { state.videoSort = b.dataset.vsort; render(); }
   if (b.dataset.remove) { state.draft = state.draft.filter((i) => i.symbol !== b.dataset.remove); render(); }
@@ -958,3 +1069,13 @@ document.addEventListener("visibilitychange", () => {
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
 
 load();
+
+// ---------------------------------------------------------------- opening animation
+// The splash in index.html animates by itself (CSS); here we just remove it afterwards.
+(function splash() {
+  const el = document.getElementById("splash");
+  if (!el) return;
+  const hide = () => { el.classList.add("out"); setTimeout(() => el.remove(), 400); };
+  const timer = setTimeout(hide, matchMedia("(prefers-reduced-motion: reduce)").matches ? 300 : 1700);
+  el.addEventListener("click", () => { clearTimeout(timer); hide(); });  // tap to skip
+})();
