@@ -196,9 +196,10 @@ def build() -> None:
     # Track record: add today's signals to the saved log, then score all of them.
     record_file = Path(os.environ.get("RECORD_FILE", ROOT / "record" / "signals.json"))
     record_file.parent.mkdir(parents=True, exist_ok=True)
-    entries = track_record.load_log(record_file, password or None)
-    entries = track_record.record_digest(entries, digest, quotes)
-    track_record.save_log(record_file, entries, password or None)
+    saved = track_record.load_log(record_file, password or None)
+    entries = track_record.record_digest(saved, digest, quotes)
+    if entries != saved or not record_file.exists():  # only write when something changed
+        track_record.save_log(record_file, entries, password or None)
     record = track_record.evaluate(entries, candles_by_symbol)
 
     latest = {
