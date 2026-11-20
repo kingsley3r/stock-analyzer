@@ -88,6 +88,16 @@ def latest_digest(items: list[dict]) -> dict | None:
         "signals": parse_signals(inbox.strip_tags(item["html"])),
     }
 
+def digest_from_record(entries: list[dict]) -> dict | None:
+    """Before the first digest reaches the inbox: show the last saved signals."""
+    if not entries:
+        return None
+    last = max(e["sent_at"] for e in entries)
+    return {"sent_at": last, "html": "",
+            "signals": [{k: e.get(k, "") for k in ("action", "label", "symbol", "name", "confidence", "reasons")}
+                        for e in entries if e["sent_at"] == last]}
+
+
 def match_symbols(signals: list[dict], quotes: list[dict]) -> None:
     """The AI sometimes writes 'BTC' or 'ASML' instead of 'BTC-USD' or 'ASML.AS'.
     Map each signal to the watchlist symbol so the dashboard can link it."""
@@ -164,14 +174,13 @@ def build() -> None:
     yt_sources = {**sources, "youtube_transcripts": False}  # titles are enough here
     videos = youtube.collect_videos(yt_sources, max_per_channel=5, lookback_hours=72)
 
-    digest = latest_digest(inbox.load_items(password or None))
-    if digest:
-        match_symbols(digest["signals"], quotes)
-
     # Track record: add today's signals to the saved log, then score all of them.
     record_file = Path(os.environ.get("RECORD_FILE", ROOT / "record" / "signals.json"))
     record_file.parent.mkdir(parents=True, exist_ok=True)
     saved = track_record.load_log(record_file, password or None)
+    digest = latest_digest(inbox.load_items(password or None)) or digest_from_record(saved)
+    if digest:
+        match_symbols(digest["signals"], quotes)
     entries = track_record.record_digest(saved, digest, quotes)
     if entries != saved or not record_file.exists():  # only write when something changed
         track_record.save_log(record_file, entries, password or None)
