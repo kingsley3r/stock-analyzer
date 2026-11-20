@@ -63,36 +63,51 @@ def build_snapshot(symbol, name, group, tags, closes, volumes, last_date) -> Sna
     )
 
 
-def fetch_snapshots(watchlist: dict) -> list[Snapshot]:
-    """Downloads one year of daily data for every symbol in one request."""
+def _entries(watchlist: dict) -> list[tuple[str, str, str, list]]:
     entries = []
     for group_key, group in (("indices", "index"), ("stocks", "stock"), ("crypto", "crypto")):
         for item in watchlist.get(group_key, []) or []:
             entries.append((str(item["symbol"]), item.get("name", item["symbol"]), group, item.get("tags", [])))
+    return entries
+
+
+def download_history(watchlist: dict, period: str = "1y") -> list[tuple[tuple, "pd.DataFrame"]]:
+    """Downloads daily prices for every symbol in one request.
+    Returns (symbol, name, group, tags) together with a table of
+    Open/High/Low/Close/Volume rows, one per trading day."""
+    entries = _entries(watchlist)
     symbols = [e[0] for e in entries]
     if not symbols:
         return []
-
-    log.info("Downloading prices for %d symbols", len(symbols))
+    log.info("Downloading %s of prices for %d symbols", period, len(symbols))
     data = yf.download(
-        symbols, period="1y", interval="1d", group_by="ticker",
+        symbols, period=period, interval="1d", group_by="ticker",
         auto_adjust=True, progress=False, threads=True,
     )
-
-    snapshots = []
-    for symbol, name, group, tags in entries:
+    out = []
+    for entry in entries:
+        symbol = entry[0]
         try:
             df = data[symbol] if len(symbols) > 1 else data
             df = df.dropna(subset=["Close"])
             if df.empty:
                 raise ValueError("no data")
-            snap = build_snapshot(
-                symbol, name, group, tags,
-                df["Close"].tolist(), df["Volume"].tolist(),
-                df.index[-1].strftime("%Y-%m-%d"),
-            )
-            if snap:
-                snapshots.append(snap)
-        except Exception as e:  # one bad symbol should not stop the digest
+            out.append((entry, df))
+        except Exception as e:  # one bad symbol should not stop everything
             log.warning("No price data for %s: %s", symbol, e)
-    return snapshots
+    return out
+
+
+def snapshot_from_history(entry: tuple, df) -> Snapshot | None:
+    symbol, name, group, tags = entry
+    return build_snapshot(
+        symbol, name, group, tags,
+        df["Close"].tolist(), df["Volume"].tolist(),
+        df.index[-1].strftime("%Y-%m-%d"),
+    )
+
+
+def fetch_snapshots(watchlist: dict) -> list[Snapshot]:
+    """One snapshot (latest numbers) per symbol, based on one year of data."""
+    snaps = (snapshot_from_history(entry, df) for entry, df in download_history(watchlist, "1y"))
+    return [s for s in snaps if s]

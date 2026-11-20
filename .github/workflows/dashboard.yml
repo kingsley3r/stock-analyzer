@@ -1,0 +1,53 @@
+name: Dashboard
+
+# Rebuilds the dashboard data (prices, news, videos, today's digest) and
+# publishes the website on GitHub Pages. No AI is used, so it costs nothing.
+on:
+  schedule:
+    - cron: "7,37 * * * *"     # every 30 minutes
+  workflow_run:
+    workflows: ["Morning digest"]
+    types: [completed]          # right after the digest, so signals show up quickly
+  push:
+    branches: [main]
+    paths: ["site/**", "analyzer/**", "config/**", ".github/workflows/dashboard.yml"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Build dashboard data
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m analyzer.dashboard_data
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
