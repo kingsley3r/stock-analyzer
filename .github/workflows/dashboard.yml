@@ -33,11 +33,20 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
-      - name: Build dashboard data
+      - name: Build dashboard data (encrypted with your password)
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m analyzer.dashboard_data
+          DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+        run: |
+          # Never publish unlocked data: stop if the password secret is missing.
+          if [ -z "$DASHBOARD_PASSWORD" ]; then
+            echo "::error::Add a repository secret named DASHBOARD_PASSWORD (Settings > Secrets and variables > Actions). The dashboard is only published encrypted."
+            exit 1
+          fi
+          python -m analyzer.dashboard_data
+          # Double check: every data file must be encrypted.
+          python -c "import json,pathlib,sys; bad=[str(p) for p in pathlib.Path('site/data').rglob('*.json') if p.name!='lock.json' and 'ct' not in json.loads(p.read_text())]; sys.exit('Unencrypted: '+', '.join(bad) if bad else 0)"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

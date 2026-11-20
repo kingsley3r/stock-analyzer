@@ -53,19 +53,92 @@ const SIGNAL_EMOJI = { buy: "🟢", sell: "🔴", avoid: "⛔", hold: "🟡", wa
 const signalFor = (symbol) => (state.data?.digest?.signals || []).find((s) => s.symbol === symbol);
 const quoteFor = (symbol) => state.data.quotes.find((q) => q.symbol === symbol);
 
+// ---------------------------------------------------------------- password lock
+// The data files on the website are encrypted (see analyzer/lock.py).
+// data/lock.json says how. We turn your password into a key with PBKDF2
+// and use it to decrypt each file right here on your phone.
+
+const lock = { info: null, key: null, keySalt: null };
+const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+
+function savedPassword() {
+  try { return localStorage.getItem("dashPassword"); } catch (e) { return null; }
+}
+function savePassword(pw) {
+  try { pw ? localStorage.setItem("dashPassword", pw) : localStorage.removeItem("dashPassword"); } catch (e) { /* private mode */ }
+}
+
+async function deriveKey(password) {
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: b64(lock.info.salt), iterations: lock.info.iterations, hash: "SHA-256" },
+    base, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+}
+
+// Downloads a data file and decrypts it if needed.
+async function getJSON(path) {
+  const resp = await fetch(`${path}?t=${Date.now()}`, { cache: "no-store" });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const body = await resp.json();
+  if (!lock.info || !lock.info.v) return body;
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64(body.iv) }, lock.key, b64(body.ct));
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
+function showLock(message = "") {
+  document.getElementById("page-title").textContent = "Market Pulse";
+  document.getElementById("updated").textContent = "🔒 Locked";
+  view.innerHTML = `
+    <form class="card lock" id="lock-form">
+      <div style="font-size:40px">🔒</div>
+      <h2>Enter your password</h2>
+      <input type="password" id="pw" autocomplete="current-password" placeholder="Dashboard password" required>
+      <label class="remember"><input type="checkbox" id="remember" checked> Remember on this device</label>
+      ${message ? `<p class="lock-error">${esc(message)}</p>` : ""}
+      <button type="submit" class="primary">Unlock</button>
+    </form>`;
+  document.getElementById("pw").focus();
+  document.getElementById("lock-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const pw = document.getElementById("pw").value;
+    savePassword(document.getElementById("remember").checked ? pw : null);
+    lock.key = null;
+    await load(pw);
+  });
+}
+
 // ---------------------------------------------------------------- loading data
 
-async function load() {
+async function load(typedPassword) {
   const btn = document.getElementById("refresh");
   btn.classList.add("spin");
   try {
-    const resp = await fetch(`data/latest.json?t=${Date.now()}`, { cache: "no-store" });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    state.data = await resp.json();
+    lock.info = await fetch(`data/lock.json?t=${Date.now()}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : { v: 0 })).catch(() => ({ v: 0 }));
+    if (lock.info.v) {
+      // A new salt comes with every update, so the key is derived again when it changes.
+      if (!lock.key || lock.keySalt !== lock.info.salt) {
+        const pw = typedPassword || savedPassword();
+        if (!pw) { showLock(); return; }
+        lock.key = await deriveKey(pw);
+        lock.keySalt = lock.info.salt;
+      }
+    }
+    try {
+      state.data = await getJSON("data/latest.json");
+    } catch (e) {
+      if (e.name === "OperationError") {  // decryption failed: wrong password
+        lock.key = null; savePassword(null);
+        showLock("Wrong password, try again.");
+        return;
+      }
+      throw e;
+    }
     document.getElementById("updated").textContent = `Updated ${istanbulTime(state.data.generated_at)} · Istanbul`;
+    document.getElementById("lock-form")?.remove();  // unlocked: hide the lock screen
     render();
   } catch (e) {
-    document.getElementById("updated").textContent = "Couldn't load data. Pull down or tap ↻ to retry.";
+    document.getElementById("updated").textContent = "Couldn't load data. Tap ↻ to retry.";
     if (!state.data) view.innerHTML = `<div class="empty">No data yet. It appears after the first update run.</div>`;
   } finally {
     btn.classList.remove("spin");
@@ -246,8 +319,7 @@ async function drawChart(q) {
   const el = document.getElementById("chart");
   if (!el || !window.LightweightCharts) return;
   if (!historyCache[q.file]) {
-    const r = await fetch(`data/history/${q.file}.json?t=${state.data.generated_at}`);
-    historyCache[q.file] = (await r.json()).candles;
+    historyCache[q.file] = (await getJSON(`data/history/${q.file}.json`)).candles;
   }
   const candles = historyCache[q.file];
   if (chart) { chart.remove(); chart = null; }
@@ -318,6 +390,7 @@ function installHint() {
 function render() {
   if (!state.data) return;
   if (chart) { chart.remove(); chart = null; }
+  if (document.getElementById("lock-form")) return;
   const hash = location.hash || "#/";
   const [, page, arg] = hash.split("/");
   const tab = page === "s" ? "watchlist" : page || "today";
@@ -357,9 +430,11 @@ view.addEventListener("click", (e) => {
 });
 
 window.addEventListener("hashchange", () => { render(); window.scrollTo(0, 0); });
-document.getElementById("refresh").addEventListener("click", load);
-// Reload fresh data when you come back to the app.
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") load(); });
+document.getElementById("refresh").addEventListener("click", () => load());
+// Reload fresh data when you come back to the app (unless the lock screen is showing).
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && !document.getElementById("lock-form")) load();
+});
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
 
 load();

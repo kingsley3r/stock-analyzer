@@ -17,6 +17,7 @@
   --warn: #8a5a00;
   --info: #2a78d6;
   --info-bg: #e3eefb;
+  --on-info: #ffffff;
   --sma50: #2a78d6;       /* blue  */
   --sma200: #eb6834;      /* orange */
   --chart-grid: #efeeea;
@@ -42,6 +43,7 @@
     --warn: #f3c25a;
     --info: #6da7ec;
     --info-bg: #14263d;
+    --on-info: #0d0d0d;
     --sma50: #3987e5;
     --sma200: #d95926;
     --chart-grid: #232321;
@@ -174,6 +176,17 @@ main { max-width: 680px; margin: 0 auto; padding: 4px 16px 24px; }
 .stat .k { font-size: 12px; color: var(--ink-3); }
 .stat .v { font-weight: 600; }
 .stat .hint { font-size: 11px; color: var(--ink-3); }
+
+/* ---------- Lock screen ---------- */
+.lock { text-align: center; padding: 28px 20px; margin-top: 24px; display: flex; flex-direction: column; gap: 12px; align-items: center; }
+.lock h2 { margin: 0; font-size: 20px; }
+.lock input[type=password] {
+  width: 100%; max-width: 320px; font: inherit; font-size: 17px; padding: 12px 14px;
+  border-radius: 12px; border: 1px solid var(--line); background: var(--page); color: var(--ink);
+}
+.remember { font-size: 14px; color: var(--ink-2); display: flex; gap: 6px; align-items: center; }
+.lock-error { color: var(--down); margin: 0; font-size: 14px; }
+.primary { border: 0; background: var(--info); color: var(--on-info); font-weight: 600; padding: 12px 28px; border-radius: 12px; cursor: pointer; font-size: 16px; }
 
 /* ---------- News & videos ---------- */
 .filters { display: flex; gap: 6px; margin: 4px 0 10px; overflow-x: auto; }

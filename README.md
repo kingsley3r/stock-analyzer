@@ -83,14 +83,21 @@ symbol with a 30-day mini chart; tap one for a full chart with 50- and 200-day a
 **News** (filter by your stocks, AI, crypto) and **Videos** (new videos from your channels).
 It updates every 30 minutes and right after each morning digest.
 
-**One-time setup:** in the repository on github.com open **Settings → Pages** and set
-**Source** to **GitHub Actions**. Then open the **Actions** tab → **Dashboard** → **Run workflow**.
+**One-time setup:**
+1. In the repository on github.com open **Settings → Pages** and set **Source** to **GitHub Actions**.
+2. Add a repository secret named `DASHBOARD_PASSWORD` (Settings → Secrets and variables → Actions)
+   with a password of your choice. Use a long one; it protects your data.
+3. Open the **Actions** tab → **Dashboard** → **Run workflow**.
+
+**Private by password:** all data on the website is encrypted (AES-256) with your password.
+The page asks for it once, and your phone can remember it. Without the password, visitors see
+only a lock screen. To change the password, update the secret and run the Dashboard workflow.
 
 **Install on iPhone:** open the address in Safari, tap **Share ⬆️ → Add to Home Screen**.
 It then opens full-screen like a normal app.
 
-> Note: GitHub Pages sites of public repositories are public. Anyone who knows the address
-> can see the dashboard (your watchlist and briefing). Your keys stay secret.
+> Note: the code and `config/watchlist.yaml` are visible in this public repository. The
+> dashboard data (briefing, signals, news) is encrypted. Your API keys are never visible.
 
 How it is built:
 
@@ -99,11 +106,13 @@ How it is built:
 | `analyzer/dashboard_data.py` | Collects prices (2 years, for charts), news, videos and reads today's pinned digest from Telegram. Writes `site/data/*.json`. |
 | `site/index.html` | The page skeleton: top bar, content area, bottom tabs, and the lines that make it installable. |
 | `site/styles.css` | All colors and layout. Light and dark mode follow your iPhone setting. |
-| `site/app.js` | Loads the data and draws each tab. Read the comments at the top first. |
+| `site/app.js` | Unlocks and loads the data and draws each tab. Read the comments at the top first. |
+| `analyzer/lock.py` | Encrypts the data with your password before it is published. |
 | `site/vendor/` | The chart library (TradingView Lightweight Charts, free and open source). |
 | `.github/workflows/dashboard.yml` | Rebuilds the data every 30 minutes and publishes the site. |
 
-To preview it on your computer: run `python -m analyzer.dashboard_data`, then
+To preview it on your computer: run `python -m analyzer.dashboard_data` (without a password set it
+writes unlocked files, fine for local use), then
 `cd site && python -m http.server 8000`, and open <http://localhost:8000>.
 
 ---

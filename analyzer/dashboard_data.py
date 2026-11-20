@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import news, prices, telegram, youtube
+from .lock import Locker
 from .config import ROOT, load_dotenv, load_yaml
 
 log = logging.getLogger("dashboard")
@@ -147,6 +148,18 @@ def match_symbols(signals: list[dict], quotes: list[dict]) -> None:
 # --------------------------------------------------------------------------- main
 
 def build() -> None:
+    # With DASHBOARD_PASSWORD set (always on GitHub), every file is encrypted.
+    # Without it (local preview on your computer), plain files are written.
+    password = os.environ.get("DASHBOARD_PASSWORD", "").strip()
+    locker = Locker(password) if password else None
+
+    def write(path: Path, obj) -> None:
+        body = locker.seal(obj) if locker else obj
+        path.write_text(json.dumps(body, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+
+    for old in SITE_DATA.rglob("*.json"):  # start clean, never mix plain and locked files
+        old.unlink()
+
     watchlist = load_yaml("watchlist.yaml")
     sources = load_yaml("sources.yaml")
     hist_dir = SITE_DATA / "history"
@@ -163,8 +176,7 @@ def build() -> None:
              round(float(r.Low), 4), round(float(r.Close), 4), int(r.Volume or 0)]
             for ts, r in df.iterrows()
         ]
-        (hist_dir / f"{safe_name(symbol)}.json").write_text(
-            json.dumps({"symbol": symbol, "candles": candles}, separators=(",", ":")), encoding="utf-8")
+        write(hist_dir / f"{safe_name(symbol)}.json", {"symbol": symbol, "candles": candles})
         q = snap.to_dict()
         q["file"] = safe_name(symbol)
         q["currency"] = currency_for(symbol, group)
@@ -186,7 +198,10 @@ def build() -> None:
         "news": [a.to_dict() | {"ts": int(a.published)} for a in articles],
         "videos": [v.to_dict() | {"id": youtube.video_id_from_link(v.link)} for v in videos],
     }
-    (SITE_DATA / "latest.json").write_text(json.dumps(latest, ensure_ascii=False), encoding="utf-8")
+    write(SITE_DATA / "latest.json", latest)
+    # lock.json tells the website whether (and how) the data is locked.
+    (SITE_DATA / "lock.json").write_text(json.dumps(locker.header() if locker else {"v": 0}), encoding="utf-8")
+    log.info("Encrypted with your password: %s", bool(locker))
     log.info("Dashboard data written: %d quotes, %d articles, %d videos, digest=%s, signals=%s",
              len(quotes), len(articles), len(videos), bool(digest),
              [f'{s["label"]} {s["symbol"]}' for s in digest["signals"]] if digest else None)
