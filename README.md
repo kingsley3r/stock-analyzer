@@ -74,6 +74,14 @@ After that it runs by itself every morning.
 
 ---
 
+## Get YouTube transcripts: run it on your home computer
+
+YouTube blocks GitHub's servers from reading video transcripts. To get the full YouTube
+insights, schedule the digest on your home computer. GitHub then stays as a backup.
+Step-by-step guide: **[docs/HOME_SETUP.md](docs/HOME_SETUP.md)**.
+
+---
+
 ## Run it on your computer (optional, good for learning)
 
 You need Python 3.11 or newer.

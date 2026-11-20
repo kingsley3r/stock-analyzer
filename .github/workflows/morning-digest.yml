@@ -25,7 +25,9 @@ jobs:
           ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m analyzer.digest
+        # Scheduled runs are a backup: they skip if your home computer already sent
+        # today's digest. The "Run workflow" button always sends.
+        run: python -m analyzer.digest ${{ github.event_name == 'schedule' && '--backup' || '' }}
       - name: Keep a copy of the digest and data
         if: always()
         uses: actions/upload-artifact@v4

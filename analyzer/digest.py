@@ -4,6 +4,7 @@ Run it:
     python -m analyzer.digest            # full run, sends to Telegram
     python -m analyzer.digest --no-send  # writes the digest but only prints it
     python -m analyzer.digest --dry-run  # only collects data (no AI cost, nothing sent)
+    python -m analyzer.digest --backup   # only runs if today's digest wasn't sent yet
 """
 from __future__ import annotations
 
@@ -34,10 +35,24 @@ def collect(watchlist: dict, sources: dict) -> dict:
     }
 
 
+def already_sent_today(now: datetime) -> bool:
+    """True if the pinned message in the Telegram chat is from today (local time)."""
+    try:
+        pinned = telegram.pinned_message_time(require_env("TELEGRAM_BOT_TOKEN"), require_env("TELEGRAM_CHAT_ID"))
+    except Exception as e:
+        log.warning("Could not check whether today's digest was sent (%s); sending anyway", e)
+        return False
+    if pinned is None:
+        return False
+    return datetime.fromtimestamp(pinned, now.tzinfo).date() == now.date()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dry-run", action="store_true", help="collect data only; no AI call, nothing sent")
     parser.add_argument("--no-send", action="store_true", help="write the digest but don't send it")
+    parser.add_argument("--backup", action="store_true",
+                        help="skip if today's digest was already sent (used by the GitHub backup run)")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s")
@@ -50,6 +65,10 @@ def main() -> None:
     now = datetime.now(tz)
     out_dir = ROOT / "output"
     out_dir.mkdir(exist_ok=True)
+
+    if args.backup and already_sent_today(now):
+        log.info("Today's digest was already sent (by your computer). Backup run not needed.")
+        return
 
     data = collect(watchlist, sources)
     data["generated_at"] = now.strftime("%A %d %B %Y, %H:%M (%Z)")
@@ -71,11 +90,15 @@ def main() -> None:
     if args.no_send:
         print(digest)
         return
-    telegram.send_message(
-        require_env("TELEGRAM_BOT_TOKEN"), require_env("TELEGRAM_CHAT_ID"), digest,
-        limit=settings.get("telegram", {}).get("max_message_length", 4000),
+    token, chat_id = require_env("TELEGRAM_BOT_TOKEN"), require_env("TELEGRAM_CHAT_ID")
+    message_ids = telegram.send_message(
+        token, chat_id, digest, limit=settings.get("telegram", {}).get("max_message_length", 4000),
     )
     log.info("Digest sent to Telegram")
+    try:
+        telegram.pin_as_latest_digest(token, chat_id, message_ids[0])
+    except Exception as e:  # pinning is nice to have; never fail the run over it
+        log.warning("Could not pin the digest: %s", e)
 
 
 if __name__ == "__main__":
