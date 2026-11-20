@@ -1,7 +1,8 @@
 name: Dashboard
 
 # Rebuilds the dashboard data (prices, news, videos, today's digest) and
-# publishes the website on GitHub Pages. No AI is used, so it costs nothing.
+# publishes the website on GitHub Pages. AI is only used for the short summary
+# in news alerts (a fraction of a cent per alert); the rest costs nothing.
 on:
   schedule:
     - cron: "7,22,37,52 * * * *"   # every 15 minutes
@@ -44,6 +45,9 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+          # Only used for the short AI summary in news alerts.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
         run: |
           # Stamp the app version into the page, so phones load new versions right away.
           export APP_VERSION="${GITHUB_SHA::7}"

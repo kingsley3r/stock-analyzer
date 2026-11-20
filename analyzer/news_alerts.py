@@ -99,7 +99,12 @@ def pick_alerts(articles: list[Article], watchlist: dict, sent: dict, now: float
     return picked
 
 
-def format_alert(article: Article, item: dict, quote: dict | None, now: float) -> str:
+IMPACT = {"up": "📈 <b>Likely effect: 🟢 up.</b>", "down": "📉 <b>Likely effect: 🔴 down.</b>",
+          "unclear": "↔️ <b>Likely effect: ⚪ unclear.</b>"}
+
+
+def format_alert(article: Article, item: dict, quote: dict | None, now: float,
+                 explained: dict | None = None) -> str:
     mins = max(0, int((now - article.published) // 60))
     ago = f"{mins} min ago" if mins < 60 else f"{mins // 60} h ago"
     move = ""
@@ -107,9 +112,32 @@ def format_alert(article: Article, item: dict, quote: dict | None, now: float) -
         ch = quote["change_1d"]
         move = f"  {'🟢' if ch >= 0 else '🔴'} {ch:+.2f}% today"
     source = re.sub(r"^Yahoo \(.*\)$", "Yahoo Finance", article.source)
-    return (f"🚨 <b>{html.escape(item['name'])}</b> ({html.escape(item['symbol'])}){move}\n"
-            f"<a href=\"{html.escape(article.link, quote=True)}\">{html.escape(article.title)}</a>\n"
-            f"<i>{html.escape(source)} · {ago}</i>")
+    text = (f"🚨 <b>{html.escape(item['name'])}</b> ({html.escape(item['symbol'])}){move}\n"
+            f"<a href=\"{html.escape(article.link, quote=True)}\">{html.escape(article.title)}</a>\n")
+    if explained:
+        text += (f"📝 {html.escape(explained['summary'])}\n"
+                 f"{IMPACT.get(explained['impact'], IMPACT['unclear'])} {html.escape(explained['why'])}\n")
+    return text + f"<i>{html.escape(source)} · {ago}</i>"
+
+
+def explain(picked, quotes_by_symbol: dict, cfg: dict) -> dict[str, dict]:
+    """Asks Claude for a short summary and likely price effect. Alerts still go out without it."""
+    if cfg.get("ai_summary", True) is False:
+        return {}
+    import os
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        log.info("News alerts: no ANTHROPIC_API_KEY, sending without AI summary")
+        return {}
+    from . import ai
+    items = [{"id": fingerprint(a), "symbol": it["symbol"], "company": it["name"], "headline": a.title,
+              "feed_text": (a.summary or "")[:600], "source": a.source,
+              "price_change_today_pct": (quotes_by_symbol.get(it["symbol"]) or {}).get("change_1d")}
+             for a, it, _ in picked]
+    try:
+        return ai.explain_alerts(items, cfg.get("model", "claude-opus-5-5"), cfg.get("effort", "low"))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("News alerts: AI summary failed, sending without it: %s", exc)
+        return {}
 
 
 def load_settings() -> dict:
@@ -170,7 +198,9 @@ def run(articles: list[Article], watchlist: dict, quotes: list[dict], settings: 
         log.info("News alerts: nothing new")
         return 0
     by_symbol = {q["symbol"]: q for q in quotes}
-    text = "\n\n".join(format_alert(a, it, by_symbol.get(it["symbol"]), now) for a, it, _ in picked)
+    explained = explain(picked, by_symbol, cfg)
+    text = "\n\n".join(format_alert(a, it, by_symbol.get(it["symbol"]), now, explained.get(fingerprint(a)))
+                         for a, it, _ in picked)
     telegram._call(token, "sendMessage", chat_id=chat_id, text=text, parse_mode="HTML",
                    disable_notification=silent, link_preview_options={"is_disabled": True})
     for a, _, _ in picked:

@@ -58,7 +58,7 @@ Structure:
 Keep the whole briefing under 3500 characters. Be direct and specific; skip filler."""
 
 
-def write_digest(payload: dict, model: str, effort: str = "medium") -> str:
+def make_client() -> anthropic.Anthropic:
     # The client reads ANTHROPIC_API_KEY from the environment. Some API keys belong to
     # the whole organization rather than one workspace; those also need the workspace id.
     workspace_id = os.environ.get("ANTHROPIC_WORKSPACE_ID", "").strip()
@@ -68,7 +68,61 @@ def write_digest(payload: dict, model: str, effort: str = "medium") -> str:
             "Copy it from Claude Console > Settings > Workspaces (not the workspace name)."
         )
     headers = {"anthropic-workspace-id": workspace_id} if workspace_id else None
-    client = anthropic.Anthropic(default_headers=headers)
+    return anthropic.Anthropic(default_headers=headers)
+
+
+ALERT_PROMPT = """You explain breaking market news to a private investor (long-term, starting to day trade).
+For each headline, write:
+- summary: 1 to 3 short, plain-English sentences on what happened. Use only the headline and
+  feed text given; if they say little, say so briefly instead of guessing details.
+- impact: "up" if the news is more likely to push this stock's price up, "down" if more likely
+  down, "unclear" if mixed or too early to tell.
+- why: one short sentence explaining the likely effect on the stock.
+Be honest about uncertainty. This is analysis, not financial advice."""
+
+ALERT_SCHEMA = {
+    "type": "object",
+    "properties": {"alerts": {"type": "array", "items": {
+        "type": "object",
+        "properties": {
+            "id": {"type": "string"},
+            "summary": {"type": "string"},
+            "impact": {"type": "string", "enum": ["up", "down", "unclear"]},
+            "why": {"type": "string"},
+        },
+        "required": ["id", "summary", "impact", "why"],
+        "additionalProperties": False,
+    }}},
+    "required": ["alerts"],
+    "additionalProperties": False,
+}
+
+
+def explain_alerts(items: list[dict], model: str, effort: str = "low") -> dict[str, dict]:
+    """Short summary + likely price effect for each news alert. Returns {id: {...}}."""
+    client = make_client()
+    request = dict(
+        model=model,
+        max_tokens=4000,
+        system=ALERT_PROMPT,
+        output_config={"effort": effort, "format": {"type": "json_schema", "schema": ALERT_SCHEMA}},
+        messages=[{"role": "user", "content": json.dumps({"headlines": items}, ensure_ascii=False)}],
+    )
+    if model.startswith(("claude-opus-5", "claude-sonnet-5-5", "claude-fable")):
+        response = client.beta.messages.create(
+            **request, betas=["server-side-fallback-2026-07-01"], fallbacks="default",
+        )
+    else:
+        response = client.messages.create(**request)
+    if response.stop_reason != "end_turn":
+        raise RuntimeError(f"No alert explanations (stop_reason={response.stop_reason})")
+    text = next(b.text for b in response.content if b.type == "text")
+    log.info("Alert explanations: %s in, %s out tokens", response.usage.input_tokens, response.usage.output_tokens)
+    return {a["id"]: a for a in json.loads(text)["alerts"]}
+
+
+def write_digest(payload: dict, model: str, effort: str = "medium") -> str:
+    client = make_client()
     user_content = "Here is today's data:\n\n" + json.dumps(payload, ensure_ascii=False, indent=1)
     log.info("Asking %s for the digest (%d characters of input)", model, len(user_content))
 

@@ -128,7 +128,9 @@ colored circle with the first letters is shown.
 **🚨 News alerts (Telegram):** with every dashboard update (every 15 minutes) the app checks the
 news. When a headline from the last hour names one of your watchlist stocks or coins *and* contains
 a market-moving word (earnings, downgrade, lawsuit, merger, plunge, ...), the bot sends you an
-alert with the link and today's price move. Free, no AI. Set them up in the app under **⚙️ Settings**:
+alert with the link, today's price move, a 1-3 sentence summary and the likely effect on the price
+(📈 up / 📉 down / ↔️ unclear), written by Claude from the headline and feed text. The summary costs about
+$0.005 per alert message (roughly $1-3 a month); turn it off with `ai_summary: false`. Set them up in the app under **⚙️ Settings**:
 turn alerts on or off and choose a quiet time (e.g. 23:00 to 07:00) when alerts come without sound or
 not at all. The app saves this to `config/alerts.yaml`. Defaults: `news_alerts` in `config/settings.yaml`; the word list is in `analyzer/news_alerts.py`.
 

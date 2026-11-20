@@ -21,3 +21,8 @@ news_alerts:
   quiet_from: "23:00"
   quiet_to: "07:00"
   quiet_mode: silent       # silent = arrive without sound, skip = not sent at all
+  # Each alert gets a 1-3 sentence summary and the likely effect on the price (up/down),
+  # written by Claude. Costs about $0.005 per alert message. Set ai_summary: false to turn off.
+  ai_summary: true
+  model: claude-opus-5-5   # claude-haiku-5-5 is ~40x cheaper, but less careful
+  effort: low

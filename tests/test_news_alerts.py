@@ -79,3 +79,27 @@ def test_skip_mode_sends_nothing_in_quiet_time(tmp_path, monkeypatch):
 def test_load_settings_defaults():
     cfg = news_alerts.load_settings()
     assert cfg["quiet_from"] == "23:00" and cfg["quiet_to"] == "07:00" and cfg["enabled"] is True
+
+
+def test_alert_with_ai_summary(tmp_path, monkeypatch):
+    from analyzer import ai
+    sent = []
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    monkeypatch.setattr(news_alerts.telegram, "_call", lambda token, method, **p: sent.append(p["text"]))
+    a = art("Nvidia beats earnings estimates", symbol="NVDA")
+    fp = news_alerts.fingerprint(a)
+    monkeypatch.setattr(ai, "explain_alerts", lambda items, model, effort: {
+        fp: {"id": fp, "summary": "Nvidia earned more than expected.", "impact": "up", "why": "Strong demand <AI>."}})
+    news_alerts.run([a], WATCH, [], {}, tmp_path / "s.json", "t", "c")
+    assert "📝 Nvidia earned more than expected." in sent[0]
+    assert "Likely effect: 🟢 up." in sent[0] and "&lt;AI&gt;" in sent[0]
+
+
+def test_alert_still_sent_when_ai_fails(tmp_path, monkeypatch):
+    from analyzer import ai
+    sent = []
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    monkeypatch.setattr(news_alerts.telegram, "_call", lambda token, method, **p: sent.append(p["text"]))
+    monkeypatch.setattr(ai, "explain_alerts", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
+    news_alerts.run([art("Nvidia beats earnings estimates")], WATCH, [], {}, tmp_path / "s.json", "t", "c")
+    assert len(sent) == 1 and "📝" not in sent[0]
