@@ -1,0 +1,62 @@
+// Popular symbols for the watchlist search (Yahoo Finance format).
+// The search also asks Finnhub for anything not in this list, when a Finnhub key is set.
+// Format: [symbol, name, market]   market: us | europe | crypto | index
+window.SYMBOLS = [
+  // US: big tech and AI
+  ["AAPL","Apple","us"],["MSFT","Microsoft","us"],["NVDA","NVIDIA","us"],["GOOGL","Alphabet (Google)","us"],
+  ["AMZN","Amazon","us"],["META","Meta Platforms (Facebook)","us"],["TSLA","Tesla","us"],["AVGO","Broadcom","us"],
+  ["AMD","Advanced Micro Devices","us"],["INTC","Intel","us"],["TSM","Taiwan Semiconductor (TSMC)","us"],
+  ["ORCL","Oracle","us"],["CRM","Salesforce","us"],["ADBE","Adobe","us"],["NFLX","Netflix","us"],
+  ["PLTR","Palantir","us"],["SNOW","Snowflake","us"],["CRWD","CrowdStrike","us"],["PANW","Palo Alto Networks","us"],
+  ["NOW","ServiceNow","us"],["IBM","IBM","us"],["QCOM","Qualcomm","us"],["MU","Micron Technology","us"],
+  ["ARM","Arm Holdings","us"],["SMCI","Super Micro Computer","us"],["DELL","Dell Technologies","us"],
+  ["ANET","Arista Networks","us"],["MRVL","Marvell Technology","us"],["ASML","ASML (US listing)","us"],
+  ["UBER","Uber","us"],["SHOP","Shopify","us"],["SPOT","Spotify","us"],["ABNB","Airbnb","us"],
+  ["COIN","Coinbase","us"],["MSTR","MicroStrategy (Strategy)","us"],["HOOD","Robinhood","us"],
+  ["SOFI","SoFi Technologies","us"],["PYPL","PayPal","us"],["SQ","Block (Square)","us"],["RBLX","Roblox","us"],
+  ["DDOG","Datadog","us"],["NET","Cloudflare","us"],["ZS","Zscaler","us"],["AI","C3.ai","us"],
+  ["SOUN","SoundHound AI","us"],["IONQ","IonQ","us"],["RKLB","Rocket Lab","us"],["RIVN","Rivian","us"],
+  ["NIO","NIO","us"],["BABA","Alibaba","us"],["PDD","PDD (Temu)","us"],["DIS","Walt Disney","us"],
+  // US: other large companies
+  ["BRK-B","Berkshire Hathaway","us"],["JPM","JPMorgan Chase","us"],["V","Visa","us"],["MA","Mastercard","us"],
+  ["BAC","Bank of America","us"],["GS","Goldman Sachs","us"],["MS","Morgan Stanley","us"],["WMT","Walmart","us"],
+  ["COST","Costco","us"],["KO","Coca-Cola","us"],["PEP","PepsiCo","us"],["MCD","McDonald's","us"],
+  ["NKE","Nike","us"],["SBUX","Starbucks","us"],["LLY","Eli Lilly","us"],["NVO","Novo Nordisk (US listing)","us"],
+  ["JNJ","Johnson & Johnson","us"],["PFE","Pfizer","us"],["UNH","UnitedHealth","us"],["MRK","Merck & Co","us"],
+  ["XOM","ExxonMobil","us"],["CVX","Chevron","us"],["BA","Boeing","us"],["LMT","Lockheed Martin","us"],
+  ["CAT","Caterpillar","us"],["GE","GE Aerospace","us"],["F","Ford","us"],["GM","General Motors","us"],
+  ["T","AT&T","us"],["VZ","Verizon","us"],["HD","Home Depot","us"],["PG","Procter & Gamble","us"],
+  // US: ETFs
+  ["SPY","SPDR S&P 500 ETF","us"],["QQQ","Invesco Nasdaq-100 ETF","us"],["VOO","Vanguard S&P 500 ETF","us"],
+  ["VTI","Vanguard Total Stock Market ETF","us"],["SMH","VanEck Semiconductor ETF","us"],["ARKK","ARK Innovation ETF","us"],
+  ["GLD","SPDR Gold ETF","us"],["IBIT","iShares Bitcoin Trust ETF","us"],
+  // Europe
+  ["ASML.AS","ASML Holding","europe"],["SAP.DE","SAP","europe"],["SIE.DE","Siemens","europe"],
+  ["ALV.DE","Allianz","europe"],["DTE.DE","Deutsche Telekom","europe"],["BMW.DE","BMW","europe"],
+  ["MBG.DE","Mercedes-Benz","europe"],["VOW3.DE","Volkswagen","europe"],["P911.DE","Porsche","europe"],
+  ["BAS.DE","BASF","europe"],["BAYN.DE","Bayer","europe"],["ADS.DE","Adidas","europe"],["IFX.DE","Infineon","europe"],
+  ["RHM.DE","Rheinmetall","europe"],["DBK.DE","Deutsche Bank","europe"],["AIR.PA","Airbus","europe"],
+  ["MC.PA","LVMH","europe"],["OR.PA","L'Oréal","europe"],["RMS.PA","Hermès","europe"],["TTE.PA","TotalEnergies","europe"],
+  ["SAN.PA","Sanofi","europe"],["BNP.PA","BNP Paribas","europe"],["SU.PA","Schneider Electric","europe"],
+  ["NOVO-B.CO","Novo Nordisk","europe"],["NESN.SW","Nestlé","europe"],["NOVN.SW","Novartis","europe"],
+  ["ROG.SW","Roche","europe"],["UBSG.SW","UBS","europe"],["SHEL.L","Shell","europe"],["AZN.L","AstraZeneca","europe"],
+  ["HSBA.L","HSBC","europe"],["ULVR.L","Unilever","europe"],["BP.L","BP","europe"],["RR.L","Rolls-Royce","europe"],
+  ["ADYEN.AS","Adyen","europe"],["PRX.AS","Prosus","europe"],["INGA.AS","ING Group","europe"],
+  ["RACE.MI","Ferrari","europe"],["ENI.MI","Eni","europe"],["ISP.MI","Intesa Sanpaolo","europe"],
+  ["ITX.MC","Inditex (Zara)","europe"],["SAN.MC","Banco Santander","europe"],["IBE.MC","Iberdrola","europe"],
+  ["ERIC-B.ST","Ericsson","europe"],["VOLV-B.ST","Volvo","europe"],["NOKIA.HE","Nokia","europe"],
+  ["EQNR.OL","Equinor","europe"],["OMV.VI","OMV","europe"],["EBS.VI","Erste Group","europe"],["VER.VI","Verbund","europe"],
+  ["ANDR.VI","Andritz","europe"],["VOE.VI","voestalpine","europe"],
+  // Crypto
+  ["BTC-USD","Bitcoin","crypto"],["ETH-USD","Ethereum","crypto"],["SOL-USD","Solana","crypto"],["XRP-USD","XRP (Ripple)","crypto"],
+  ["BNB-USD","BNB","crypto"],["ADA-USD","Cardano","crypto"],["DOGE-USD","Dogecoin","crypto"],["AVAX-USD","Avalanche","crypto"],
+  ["DOT-USD","Polkadot","crypto"],["LINK-USD","Chainlink","crypto"],["LTC-USD","Litecoin","crypto"],["TRX-USD","TRON","crypto"],
+  ["SHIB-USD","Shiba Inu","crypto"],["SUI-USD","Sui","crypto"],["NEAR-USD","NEAR Protocol","crypto"],["XLM-USD","Stellar","crypto"],
+  ["UNI-USD","Uniswap","crypto"],["PEPE-USD","Pepe","crypto"],["HBAR-USD","Hedera","crypto"],["ATOM-USD","Cosmos","crypto"],
+  ["ARB-USD","Arbitrum","crypto"],["OP-USD","Optimism","crypto"],["RNDR-USD","Render","crypto"],["FET-USD","Fetch.ai (ASI)","crypto"],
+  // Indices
+  ["^GSPC","S&P 500","index"],["^NDX","Nasdaq 100","index"],["^IXIC","Nasdaq Composite","index"],["^DJI","Dow Jones","index"],
+  ["^RUT","Russell 2000","index"],["^VIX","VIX (fear index)","index"],["^GDAXI","DAX (Germany)","index"],
+  ["^STOXX50E","Euro Stoxx 50","index"],["^FCHI","CAC 40 (France)","index"],["^FTSE","FTSE 100 (UK)","index"],
+  ["^ATX","ATX (Austria)","index"],["^N225","Nikkei 225 (Japan)","index"],
+];

@@ -260,3 +260,38 @@ main { max-width: 680px; margin: 0 auto; padding: 4px 16px 24px; }
   .stats { grid-template-columns: repeat(2, 1fr); }
   .thumb { flex-basis: 104px; } .thumb img { width: 104px; height: 58px; }
 }
+
+/* Watchlist search dropdown */
+.search-wrap { position: relative; }
+.search-wrap input { width: 100%; box-sizing: border-box; }
+.suggest { margin-top: 6px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--card); }
+.suggest .opt { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%;
+  padding: 10px 12px; border: 0; border-bottom: 1px solid var(--line); background: none; color: var(--ink);
+  font: inherit; text-align: left; cursor: pointer; }
+.suggest .opt:last-child { border-bottom: 0; }
+.suggest .opt:active, .suggest .opt:hover { background: var(--card-2); }
+.suggest .opt[disabled] { opacity: .5; cursor: default; }
+.suggest .who { display: flex; flex-direction: column; min-width: 0; }
+.suggest .t { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.suggest .s { font-size: 12px; color: var(--ink-3); }
+.suggest .mk { font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+.suggest .typed .t { color: var(--info, var(--ink)); }
+.empty-opt { padding: 10px 12px; font-size: 13px; color: var(--ink-3); }
+
+/* Market clock */
+.markets { padding-top: 4px; padding-bottom: 10px; }
+.markets .mrow { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.markets .mrow:last-of-type { border-bottom: 0; }
+.markets .t { font-weight: 600; font-size: 14px; }
+.markets .s { font-size: 12px; color: var(--ink-3); }
+.mstat { font-size: 12px; text-align: right; }
+.mtag { font-size: 12px; font-weight: 500; margin-left: 6px; }
+.m-open { color: var(--up); }
+.m-closed { color: var(--ink-3); }
+.hero-clock { font-size: 13px; margin-top: 2px; }
+.hero-clock .mtag { margin-left: 0; }
+.section-title .sub { font-size: 12px; font-weight: 500; color: var(--ink-3); margin-left: 4px; }
+.markets .mstat { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; white-space: nowrap; }
+.markets .mstat b { font-size: 13px; }
+.markets .mstat span { color: var(--ink-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+.markets .local { opacity: .8; }

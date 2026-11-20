@@ -148,6 +148,94 @@ async function load(typedPassword) {
 
 // ---------------------------------------------------------------- pages
 
+// ---------------------------------------------------------------- market clock
+// Regular trading hours in each exchange's own time zone, so summer/winter time is handled.
+// Public holidays are not included: on a holiday the market shows "open" but is closed.
+
+const EXCHANGES = [
+  { id: "us", flag: "🇺🇸", name: "New York", tz: "America/New_York", open: [9, 30], close: [16, 0] },
+  { id: "de", flag: "🇩🇪", name: "Frankfurt", tz: "Europe/Berlin", open: [9, 0], close: [17, 30] },
+  { id: "at", flag: "🇦🇹", name: "Vienna", tz: "Europe/Vienna", open: [9, 0], close: [17, 30] },
+  { id: "uk", flag: "🇬🇧", name: "London", tz: "Europe/London", open: [8, 0], close: [16, 30] },
+];
+const WEEKDAY = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 0 };
+
+function tzNow(tz, at = new Date()) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(at).map((x) => [x.type, x.value]));
+  return { day: WEEKDAY[p.weekday], min: Number(p.hour) * 60 + Number(p.minute) };
+}
+
+function marketStatus(ex, at = new Date()) {
+  const { day, min } = tzNow(ex.tz, at);
+  const o = ex.open[0] * 60 + ex.open[1], c = ex.close[0] * 60 + ex.close[1];
+  const workday = (d) => d >= 1 && d <= 5;
+  if (workday(day) && min >= o && min < c) return { open: true, minutes: c - min };
+  let ahead = workday(day) && min < o ? o - min : null;
+  for (let d = 1; ahead == null; d++) if (workday((day + d) % 7)) ahead = d * 1440 - min + o;
+  return { open: false, minutes: ahead };
+}
+
+function duration(m) {
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60), r = m % 60;
+  return r ? `${h} h ${r} min` : `${h} h`;
+}
+
+function istanbulClock(at, withDay) {
+  return new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Istanbul", hour: "2-digit", minute: "2-digit",
+    ...(withDay ? { weekday: "short" } : {}) }).format(at);
+}
+
+function statusText(ex) {
+  const s = marketStatus(ex), at = new Date(Date.now() + s.minutes * 60000);
+  if (s.open) return { open: true, label: "🟢 Open", detail: `closes in ${duration(s.minutes)}` };
+  if (s.minutes > 18 * 60) return { open: false, label: "🔴 Closed", detail: `opens ${istanbulClock(at, true)}` };
+  return { open: false, label: "🔴 Closed", detail: `opens in ${duration(s.minutes)}` };
+}
+
+const hhmm = (t) => `${String(t[0]).padStart(2, "0")}:${String(t[1]).padStart(2, "0")}`;
+function istanbulHours(ex) {
+  // Today's opening and closing time, shown in Istanbul time.
+  const ref = new Date(), { min } = tzNow(ex.tz, ref);
+  const toIst = (t) => istanbulClock(new Date(ref.getTime() + ((t[0] * 60 + t[1]) - min) * 60000));
+  return `${toIst(ex.open)}–${toIst(ex.close)}`;
+}
+
+function marketsCard() {
+  return `<h2 class="section-title">🕒 Markets <span class="sub">times in Istanbul</span></h2>
+    <div class="card markets">${EXCHANGES.map((ex) => `
+      <div class="mrow"><div class="who"><div class="t">${ex.flag} ${ex.name}</div>
+        <div class="s">${istanbulHours(ex)} <span class="local">(local ${hhmm(ex.open)}–${hhmm(ex.close)})</span></div></div>
+        <div class="mstat" data-mclock="${ex.id}" data-two-lines></div></div>`).join("")}
+      <div class="mrow"><div class="who"><div class="t">₿ Crypto</div><div class="s">24 hours, 7 days</div></div>
+        <div class="mstat"><b class="m-open">🟢 Open</b><span>always</span></div></div>
+      <p class="hint">Public holidays are not included.</p>
+    </div>`;
+}
+
+function exchangeFor(q) {
+  if (q.group === "crypto") return null;
+  if (q.group === "index") return /^\^(GDAXI|STOXX50E|FCHI)$/.test(q.symbol) ? "de" : q.symbol === "^FTSE" ? "uk" : q.symbol === "^ATX" ? "at" : /^\^(GSPC|NDX|IXIC|DJI|RUT|VIX)$/.test(q.symbol) ? "us" : null;
+  if (q.symbol.endsWith(".VI")) return "at";
+  if (q.symbol.endsWith(".L")) return "uk";
+  return (q.tags || []).includes("europe") || q.symbol.includes(".") ? "de" : "us";
+}
+
+function marketTag(id) { return `<span class="mtag" data-mclock="${id}"></span>`; }
+
+function tickClocks() {
+  document.querySelectorAll("[data-mclock]").forEach((el) => {
+    const ex = EXCHANGES.find((x) => x.id === el.dataset.mclock);
+    if (!ex) return;
+    const st = statusText(ex);
+    const cls = st.open ? "m-open" : "m-closed";
+    el.innerHTML = "twoLines" in el.dataset ? `<b class="${cls}">${st.label}</b><span>${st.detail}</span>`
+      : `<span class="${cls}">${st.label} · ${st.detail}</span>`;
+  });
+}
+setInterval(tickClocks, 20000);
+
 function pageToday() {
   const d = state.data;
   const indices = d.quotes.filter((q) => q.group === "index");
@@ -164,6 +252,8 @@ function pageToday() {
         <div class="num" style="font-size:13px;font-weight:600">${liveChange(q)}</div>
       </a>`).join("")}
     </div>
+
+    ${marketsCard()}
 
     <h2 class="section-title">🎯 Today's signals</h2>
     ${signals.length ? signals.map(signalCard).join("") :
@@ -229,7 +319,7 @@ function pageWatchlist() {
   return `<div class="edit-bar"><span class="sub">${q.filter((x) => x.live && live.prices[x.symbol]).length ? "● Some prices are live" : "Prices refresh every 15 minutes"}</span>
       <button class="pill-btn" data-act="edit">✏️ Edit list</button></div>` +
     (state.flash ? `<div class="card notice">${state.flash}</div>` : "") +
-    block("🇺🇸 US stocks", us) + block("🇪🇺 Europe", eu) + block("₿ Crypto", crypto) +
+    block(`🇺🇸 US stocks ${marketTag("us")}`, us) + block(`🇪🇺 Europe ${marketTag("de")}`, eu) + block("₿ Crypto", crypto) +
     `<p class="disclaimer">Prices from Yahoo Finance (European stocks about 15 min delayed). Live where marked ● LIVE.</p>`;
 }
 
@@ -351,6 +441,7 @@ function pageDetail(file) {
     <a class="back" href="#/watchlist">‹ Watchlist</a>
     <div class="hero">
       <div style="color:var(--ink-3);font-size:14px">${esc(q.symbol)} · ${esc(q.name)}</div>
+      ${exchangeFor(q) ? `<div class="hero-clock">${marketTag(exchangeFor(q))}</div>` : ""}
       <div class="big num">${livePrice(q)}</div>
       <div class="chg num">${liveChange(q)} today ${q.live ? `<span class="live-tag" data-livetag="${esc(q.symbol)}">${live.prices[q.symbol] ? "● LIVE" : "○ connecting"}</span>` : `· last price ${esc(q.last_date)}, may be delayed`}</div>
     </div>
@@ -619,14 +710,15 @@ function pageEditWatchlist() {
       <button class="remove" data-remove="${esc(i.symbol)}" aria-label="Remove ${esc(i.symbol)}">✕</button></div>`).join("")}</div>` : "";
   return `
     <div class="edit-bar"><b>✏️ Edit watchlist</b><button class="pill-btn" data-act="cancel">Cancel</button></div>
-    <form class="card add-form" id="add-form">
-      <div class="k">Add a symbol</div>
-      <input id="add-symbol" placeholder="Symbol, e.g. NFLX, BMW.DE, XRP-USD" autocapitalize="characters" autocomplete="off" required>
-      <input id="add-name" placeholder="Name, e.g. Netflix (optional)" autocomplete="off">
-      <select id="add-market">${Object.entries(MARKETS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select>
-      <button type="submit" class="primary">➕ Add</button>
-      <p class="hint">Symbols use Yahoo Finance format: find them on finance.yahoo.com. Germany ends in .DE,
-        Amsterdam .AS, Paris .PA. Crypto ends in -USD.</p>
+    ${state.flash ? `<div class="card notice">${esc(state.flash)}</div>` : ""}
+    <form class="card add-form" id="add-form" autocomplete="off">
+      <label class="k" for="add-search">➕ Add a stock, coin or index</label>
+      <div class="search-wrap">
+        <input id="add-search" type="search" placeholder="🔎 Type a name or symbol, e.g. Netflix, BMW, XRP" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search">
+        <div id="suggest" class="suggest" role="listbox" hidden></div>
+      </div>
+      <p class="hint">Tap a result to add it. Not listed? Type the exact Yahoo Finance symbol
+        (e.g. BMW.DE, XRP-USD) and pick “Add as typed”.</p>
     </form>
     ${state.editError ? `<p class="lock-error" style="margin:10px 4px 0">${esc(state.editError)}</p>` : ""}
     ${block("us")}${block("europe")}${block("crypto")}${block("index")}
@@ -695,17 +787,114 @@ async function saveWatchlist() {
   }
 }
 
+// ------------------------------------------------ watchlist search dropdown
+// Typing shows matches from the built-in list (symbols.js) right away, then
+// adds more from Finnhub's symbol search when a Finnhub key is set.
+
+const EU_SUFFIX = ["DE", "AS", "PA", "MI", "MC", "L", "SW", "VI", "BR", "LS", "ST", "CO", "HE", "OL", "IR"];
+const MARKET_TAG = { us: "🇺🇸 US", europe: "🇪🇺 EU", crypto: "₿ Crypto", index: "📊 Index" };
+
+function guessMarket(symbol) {
+  if (symbol.startsWith("^")) return "index";
+  if (/-(USD|EUR|USDT)$/.test(symbol)) return "crypto";
+  const dot = symbol.lastIndexOf(".");
+  return dot > 0 && EU_SUFFIX.includes(symbol.slice(dot + 1)) ? "europe" : "us";
+}
+
+function localMatches(q) {
+  const Q = q.toUpperCase(), words = q.toLowerCase();
+  const scored = [];
+  for (const [symbol, name, market] of window.SYMBOLS || []) {
+    const S = symbol.toUpperCase(), n = name.toLowerCase();
+    let score = 0;
+    if (S === Q || S.replace(/^\^/, "").split(/[.-]/)[0] === Q) score = 100;
+    else if (S.startsWith(Q)) score = 80;
+    else if (n.startsWith(words)) score = 70;
+    else if (n.split(/[\s()&-]+/).some((w) => w.startsWith(words))) score = 60;
+    else if (words.length >= 3 && n.includes(words)) score = 40;
+    if (score) scored.push({ symbol, name, market, score });
+  }
+  return scored.sort((a, b) => b.score - a.score || a.symbol.length - b.symbol.length).slice(0, 8);
+}
+
+const finnhubCache = new Map();
+async function finnhubMatches(q) {
+  const key = state.data?.live?.finnhub_key;
+  if (!key || q.length < 2) return [];
+  if (finnhubCache.has(q)) return finnhubCache.get(q);
+  try {
+    const r = await fetch(`https://finnhub.io/api/v1/search?q=${encodeURIComponent(q)}&token=${key}`);
+    if (!r.ok) return [];
+    const out = [];
+    for (const it of (await r.json()).result || []) {
+      if (!["Common Stock", "ADR", "ETP", "REIT"].includes(it.type)) continue;
+      let symbol = String(it.symbol || "").toUpperCase();
+      const dot = symbol.lastIndexOf(".");
+      if (dot > 0 && !EU_SUFFIX.includes(symbol.slice(dot + 1))) {
+        // US share classes like BRK.B are BRK-B on Yahoo; skip other exchanges.
+        if (/^[A-Z]{1,5}\.[A-Z]$/.test(symbol)) symbol = symbol.replace(".", "-"); else continue;
+      }
+      const name = String(it.description || symbol).toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+      out.push({ symbol, name, market: guessMarket(symbol) });
+      if (out.length >= 8) break;
+    }
+    finnhubCache.set(q, out);
+    return out;
+  } catch (e) { return []; }
+}
+
+let searchSeq = 0;
+function showSuggestions(results, q) {
+  const box = document.getElementById("suggest");
+  if (!box) return;
+  const have = new Set(state.draft.map((i) => i.symbol));
+  const typed = q.trim().toUpperCase();
+  const rows = results.map((r) => `
+    <button type="button" class="opt" data-pick="${esc(r.symbol)}" data-name="${esc(r.name)}" data-market="${r.market}" ${have.has(r.symbol) ? "disabled" : ""}>
+      <span class="who"><span class="t">${esc(r.name)}</span><span class="s">${esc(r.symbol)}</span></span>
+      <span class="mk">${have.has(r.symbol) ? "✓ on list" : MARKET_TAG[r.market]}</span>
+    </button>`);
+  if (/^[\^A-Z0-9][A-Z0-9.\-=^]{0,14}$/.test(typed) && !results.some((r) => r.symbol === typed) && !have.has(typed)) {
+    rows.push(`<button type="button" class="opt typed" data-pick="${esc(typed)}" data-name="" data-market="${guessMarket(typed)}">
+      <span class="who"><span class="t">➕ Add “${esc(typed)}” as typed</span><span class="s">${MARKET_TAG[guessMarket(typed)]} · checked at the next update</span></span></button>`);
+  }
+  box.innerHTML = rows.join("") || `<div class="empty-opt">No match yet. Keep typing…</div>`;
+  box.hidden = !q.trim();
+}
+
+async function runSearch(q) {
+  const seq = ++searchSeq;
+  const local = localMatches(q.trim());
+  showSuggestions(local, q);
+  if (q.trim().length < 2) return;
+  await new Promise((res) => setTimeout(res, 250));            // wait until typing pauses
+  if (seq !== searchSeq) return;
+  const remote = await finnhubMatches(q.trim());
+  if (seq !== searchSeq) return;
+  const seen = new Set(local.map((r) => r.symbol));
+  showSuggestions([...local, ...remote.filter((r) => !seen.has(r.symbol))].slice(0, 10), q);
+}
+
+view.addEventListener("input", (e) => {
+  if (e.target.id === "add-search") runSearch(e.target.value);
+});
+
+view.addEventListener("click", (e) => {
+  const opt = e.target.closest("[data-pick]");
+  if (!opt || !state.editing) return;
+  const symbol = opt.dataset.pick;
+  if (state.draft.some((i) => i.symbol === symbol)) return;
+  state.draft.push({ symbol, name: opt.dataset.name || symbol, market: opt.dataset.market, tags: [] });
+  state.editError = "";
+  state.flash = `➕ Added ${opt.dataset.name || symbol}. Tap 💾 Save changes when you're done.`;
+  render();
+  document.getElementById("add-search")?.focus();
+});
+
 view.addEventListener("submit", (e) => {
   if (e.target.id !== "add-form") return;
-  e.preventDefault();
-  const symbol = document.getElementById("add-symbol").value.trim().toUpperCase();
-  const name = document.getElementById("add-name").value.trim();
-  const market = document.getElementById("add-market").value;
-  if (!/^[\^A-Z0-9][A-Z0-9.\-=^]{0,14}$/.test(symbol)) { state.editError = `“${symbol}” doesn't look like a symbol.`; render(); return; }
-  if (state.draft.some((i) => i.symbol === symbol)) { state.editError = `${symbol} is already on the list.`; render(); return; }
-  state.draft.push({ symbol, name: name || symbol, market, tags: [] });
-  state.editError = "";
-  render();
+  e.preventDefault();                                           // Enter picks the first result
+  document.querySelector("#suggest [data-pick]:not([disabled])")?.click();
 });
 
 // ---------------------------------------------------------------- router
@@ -728,6 +917,7 @@ function render() {
   } else {
     view.innerHTML = { today: pageToday, watchlist: pageWatchlist, news: pageNews, videos: pageVideos, record: pageRecord }[tab]();
   }
+  tickClocks();
 }
 
 // Clicks on buttons inside the page (filters, range, "read more", ...).
@@ -738,7 +928,7 @@ view.addEventListener("click", (e) => {
   if (b.dataset.vsort) { state.videoSort = b.dataset.vsort; render(); }
   if (b.dataset.remove) { state.draft = state.draft.filter((i) => i.symbol !== b.dataset.remove); render(); }
   if (b.dataset.act === "edit") startEditing();
-  if (b.dataset.act === "cancel") { state.editing = false; render(); }
+  if (b.dataset.act === "cancel") { state.editing = false; state.flash = ""; render(); }
   if (b.dataset.act === "save") saveWatchlist();
   if (b.dataset.act === "forget-key") { ghKey.set(""); render(); }
   const seg = b.closest("[data-seg]");

@@ -84,7 +84,7 @@ symbol with a 30-day mini chart; tap one for a full chart with 50- and 200-day a
 The data updates every 15 minutes and right after each morning digest.
 
 **Live prices (● LIVE):** while the page is open, crypto prices come live from Coinbase (free, no key)
-and US stock prices come live from Finnhub during US trading hours (16:30 to 23:00 Istanbul time).
+and US stock prices come live from Finnhub during US trading hours (17:30 to 00:00 Istanbul time in winter, 16:30 to 23:00 in summer).
 The open chart moves with them. European stocks stay about 15 minutes delayed.
 For US live prices add a free Finnhub key: sign up at <https://finnhub.io>, copy the API key from
 the dashboard, and add it as the repository secret `FINNHUB_API_KEY`.
@@ -113,6 +113,13 @@ Saving needs a GitHub key that can only change this one repository. Create it on
 5. Click **Generate token**, copy it (starts with `github_pat_`), and paste it in the app's editor.
 
 The key is stored only on your phone (in the browser), never in the repository.
+
+To add something, type a company name or symbol in the search box ("netflix", "bmw", "xrp") and tap
+the right result. The list comes from `site/symbols.js` (popular US, European, crypto and index
+symbols) plus Finnhub's symbol search when `FINNHUB_API_KEY` is set.
+
+The **🕒 Markets** card on the Today tab shows when New York, Frankfurt, Vienna and London open
+and close, in Istanbul time, with a countdown. Public holidays are not included.
 
 **Install on iPhone:** open the address in Safari, tap **Share ⬆️ → Add to Home Screen**.
 It then opens full-screen like a normal app.
