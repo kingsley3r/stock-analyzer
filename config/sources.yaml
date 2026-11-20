@@ -1,0 +1,34 @@
+# News feeds (RSS). Free, no API key needed. If a feed stops working,
+# the digest skips it and logs a warning, so you can remove or replace it.
+news_feeds:
+  - { name: CNBC Top News,   url: "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114" }
+  - { name: MarketWatch,     url: "https://feeds.content.dowjones.io/public/rss/mw_topstories" }
+  - { name: Yahoo Finance,   url: "https://finance.yahoo.com/news/rssindex" }
+  - { name: Financial Times, url: "https://www.ft.com/markets?format=rss" }
+  - { name: Investing.com,   url: "https://www.investing.com/rss/news.rss" }
+  - { name: CoinDesk,        url: "https://www.coindesk.com/arc/outboundfeeds/rss/" }
+  - { name: Cointelegraph,   url: "https://cointelegraph.com/rss" }
+
+# Also fetch the latest headlines for each watchlist stock from Yahoo Finance.
+per_symbol_news: true
+
+# Only look at news and videos from the last N hours.
+lookback_hours: 24
+
+# YouTube channels. Use the handle from the channel URL (youtube.com/@handle).
+# You can use channel_id instead of handle if you know it (starts with UC...).
+youtube_channels:
+  - { handle: CNBCtelevision,       topic: daily market news }
+  - { handle: BloombergTelevision,  topic: daily market news }
+  - { handle: YahooFinance,         topic: daily market news }
+  - { handle: MeetKevin,            topic: daily stock market commentary }
+  - { handle: tickersymbolyou,      topic: AI and tech stocks }
+  - { handle: FinancialEducation,   topic: stock picks and analysis }
+  - { handle: AndreiJikh,           topic: investing and markets }
+  - { handle: CoinBureau,           topic: crypto analysis }
+  - { handle: AltcoinDaily,         topic: daily crypto news }
+  - { handle: intothecryptoverse,   topic: crypto data and cycles }
+
+# Try to read video transcripts (gives much better summaries). YouTube sometimes
+# blocks this from cloud servers. Then the digest falls back to title + description.
+youtube_transcripts: true

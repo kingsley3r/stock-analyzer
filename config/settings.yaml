@@ -1,0 +1,11 @@
+timezone: Europe/Istanbul
+
+ai:
+  # claude-opus-5-5 gives the best analysis. To cut cost, try claude-sonnet-5-5
+  # or claude-haiku-5-5 (much cheaper, less thorough).
+  model: claude-opus-5-5
+  effort: medium
+
+telegram:
+  # Telegram messages are limited to 4096 characters; longer digests are split.
+  max_message_length: 4000
