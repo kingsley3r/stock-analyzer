@@ -321,6 +321,16 @@ function pageToday() {
   const signals = digest?.signals || [];
 
   return `
+    <h2 class="section-title first">🎯 Today's signals${digest ? ` <span class="sub">${istanbulTime(digest.sent_at)}</span>` : ""}</h2>
+    ${signals.length ? signals.map(signalCard).join("") :
+      `<div class="card empty">No signals yet today. They appear after the morning digest.</div>`}
+
+    <h2 class="section-title">🔥 Biggest moves</h2>
+    <div class="list">${movers.map((q) => row(q)).join("")}</div>
+
+    ${recordTeaser()}
+
+    <h2 class="section-title">📊 Indices</h2>
     <div class="chips">${indices.map((q) => `
       <a class="chip" href="#/s/${q.file}">
         <div class="label">${INDEX_FLAG[q.symbol] || "📊"} ${esc(q.name)}</div>
@@ -328,26 +338,6 @@ function pageToday() {
         <div class="num" style="font-size:13px;font-weight:600">${liveChange(q)}</div>
       </a>`).join("")}
     </div>
-
-    <h2 class="section-title">⭐ Your favorites</h2>
-    ${favs.quotes().length ? `<div class="list">${favs.quotes().map((q) => row(q)).join("")}</div>`
-      : `<a class="card empty" href="#/watchlist">Tap ☆ next to a stock in your Watchlist to pin it here. ›</a>`}
-
-    ${marketsCard()}
-
-    <h2 class="section-title">🎯 Today's signals</h2>
-    ${signals.length ? signals.map(signalCard).join("") :
-      `<div class="card empty">No signals yet today. They appear after the morning digest.</div>`}
-
-    ${recordTeaser()}
-
-    <h2 class="section-title">🔥 Biggest moves</h2>
-    <div class="list">${movers.map(row).join("")}</div>
-
-    <h2 class="section-title">☀️ Morning briefing${digest ? ` · ${istanbulTime(digest.sent_at)}` : ""}</h2>
-    ${digest ? `<div class="card"><div class="briefing collapsed" id="briefing">${digest.html}</div>
-      <button class="more" id="more">Read the full briefing</button></div>`
-      : `<div class="card empty">The briefing appears here after the morning digest.</div>`}
     ${installHint()}
     <p class="disclaimer">⚠️ Signals are AI analysis, not financial advice, and can be wrong.</p>`;
 }

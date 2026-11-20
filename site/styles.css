@@ -387,3 +387,4 @@ a.icon-btn { display: inline-grid; place-items: center; text-decoration: none; f
 .signal-head .badge { flex: 0 0 auto; white-space: nowrap; }
 .badge.mini { font-size: 10px; padding: 1px 5px; border-radius: 5px; margin-left: 4px; vertical-align: 1px; }
 .row .who .s { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.section-title.first { margin-top: 4px; }
