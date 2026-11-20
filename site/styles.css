@@ -388,3 +388,25 @@ a.icon-btn { display: inline-grid; place-items: center; text-decoration: none; f
 .badge.mini { font-size: 10px; padding: 1px 5px; border-radius: 5px; margin-left: 4px; vertical-align: 1px; }
 .row .who .s { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .section-title.first { margin-top: 4px; }
+
+/* Portfolio, paper trading, earnings, price alerts */
+.seg.wide { display: flex; width: 100%; margin-bottom: 4px; }
+.seg.wide button { flex: 1; }
+.pf-total { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.pf-total .k, .pf-grid .k { font-size: 12px; color: var(--ink-3); font-weight: 600; }
+.pf-total .big { font-size: 32px; font-weight: 700; letter-spacing: -.5px; }
+.pf-sub { font-size: 14px; font-weight: 600; }
+.pf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+.pf-grid > div { display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.rules { margin: 8px 4px 0; }
+.btn-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.trade-form label.k { display: flex; flex-direction: column; gap: 4px; }
+.trade-form input, .alert-form input, .alert-form select { font: inherit; font-size: 16px; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--card-2); color: var(--ink); width: 100%; box-sizing: border-box; }
+.alert-form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; }
+.list.flat { box-shadow: none; background: none; }
+.list.flat .row { padding-left: 0; padding-right: 0; }
+.backup { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+label.pill-btn { cursor: pointer; }
+.info-line { margin-top: 12px; font-size: 14px; }
+.tabbar a { font-size: 10px; }

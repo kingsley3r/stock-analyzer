@@ -17,7 +17,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import news, news_alerts, prices, telegram, track_record, youtube
+from . import earnings, news, news_alerts, paper, price_alerts, prices, telegram, track_record, youtube
 from .lock import Locker
 from .config import ROOT, load_dotenv, load_yaml
 
@@ -173,13 +173,16 @@ def build() -> None:
         old.unlink()
 
     watchlist = load_yaml("watchlist.yaml")
+    record_dir = Path(os.environ.get("RECORD_FILE", ROOT / "record" / "signals.json")).parent
+    record_dir.mkdir(parents=True, exist_ok=True)
+    price_list = watchlist
     sources = load_yaml("sources.yaml")
     hist_dir = SITE_DATA / "history"
     hist_dir.mkdir(parents=True, exist_ok=True)
 
     quotes = []
     candles_by_symbol = {}
-    for entry, df in prices.download_history(watchlist, "2y"):
+    for entry, df in prices.download_history(price_list, "2y"):
         symbol, name, group, tags = entry
         snap = prices.snapshot_from_history(entry, df)
         if not snap:
@@ -217,6 +220,24 @@ def build() -> None:
     record = track_record.evaluate(entries, candles_by_symbol)
 
     alert_cfg = news_alerts.load_settings()
+    settings = load_yaml("settings.yaml")
+    tg_token, tg_chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
+
+    paper_result = paper.simulate(entries, candles_by_symbol, settings.get("paper_trading"))
+    price_cfg = price_alerts.load_config(password or None)
+
+    # Telegram extras. A problem in one of them must never stop the dashboard.
+    def safely(what, fn, default=None):
+        try:
+            return fn()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("%s failed: %s", what, exc)
+            return default
+
+    safely("Price alerts", lambda: price_alerts.run(quotes, price_cfg, alert_cfg, record_dir / "price_alerts.json",
+                                                    tg_token, tg_chat))
+    upcoming = safely("Earnings", lambda: earnings.run(watchlist, quotes, settings.get("earnings") or {},
+                                                       record_dir / "earnings.json", FINNHUB_KEY, tg_token, tg_chat), [])
 
     latest = {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -228,6 +249,10 @@ def build() -> None:
         # The key is only readable after unlocking with your password.
         "live": {"finnhub_key": FINNHUB_KEY or None},
         "alerts": alert_cfg,      # shown on the app's Settings page
+        "price_alerts": {k: v for k, v in price_cfg.items() if k != "targets"}
+                        | {"targets": price_alerts.status(price_cfg, record_dir / "price_alerts.json")},
+        "paper": paper_result,
+        "earnings": upcoming,
         "news": [a.to_dict() | {"ts": int(a.published)} for a in articles],
         "videos": [v.to_dict() | {"id": v.video_id} for v in videos],
     }

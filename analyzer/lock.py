@@ -37,3 +37,24 @@ class Locker:
     def open(self, sealed: dict):  # used by the tests
         data = AESGCM(self.key).decrypt(base64.b64decode(sealed["iv"]), base64.b64decode(sealed["ct"]), None)
         return json.loads(data)
+
+
+def load_sealed_file(path, password: str | None) -> dict | None:
+    """Reads a file the app saved encrypted with your password ({v, salt, iv, ct}).
+    Returns None when it is missing or can't be decrypted (e.g. password changed)."""
+    import logging
+    from pathlib import Path
+    path = Path(path)
+    if not path.exists():
+        return None
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if "ct" not in raw:
+        return raw
+    if not password:
+        logging.getLogger(__name__).warning("%s is encrypted, but DASHBOARD_PASSWORD is not set", path.name)
+        return None
+    try:
+        return Locker(password, salt=base64.b64decode(raw["salt"])).open(raw)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger(__name__).warning("Could not decrypt %s (%s). Save it again in the app.", path.name, exc)
+        return None

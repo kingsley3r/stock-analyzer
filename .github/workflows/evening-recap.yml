@@ -1,0 +1,34 @@
+name: Evening recap
+
+on:
+  schedule:
+    # GitHub uses UTC. 21:15 UTC = 00:15 Istanbul, right after the US close in winter
+    # (in summer the US closes an hour earlier, so it arrives at about 00:15 too, an hour after).
+    # Monday to Friday only. GitHub often starts scheduled jobs 5-20 minutes late.
+    - cron: "15 21 * * 1-5"
+  workflow_dispatch: {}   # "Run workflow" button for testing
+
+jobs:
+  recap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get the saved signals and earnings dates
+        uses: actions/checkout@v4
+        with:
+          ref: track-record
+          path: record
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Write and send the evening recap
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+        run: python -m analyzer.recap

@@ -140,6 +140,25 @@ and close, in Istanbul time, with a countdown. Public holidays are not included.
 **Updates:** when a new app version is published, the app notices it on the next data load and
 reloads itself once.
 
+### More tools
+
+- **💼 Portfolio tab → My portfolio:** add the trades you made (bought/sold, shares, price, date, fee).
+  The app works out your holdings, average buy price, total value, today's change and profit/loss.
+  Your trades are stored **only on your phone** (never online). Use **⬇️ Save backup file** now and then.
+  Prices come from your watchlist; holdings that aren't on it are counted at what you paid.
+- **💼 Portfolio tab → 🧪 Paper trading:** a fake-money account ($1,000 start, $100 per 🟢 BUY signal)
+  that follows the app's signals, so you can judge them before risking real money. Rules and numbers:
+  `paper_trading` in `config/settings.yaml`, code in `analyzer/paper.py`.
+- **🔔 Price alerts:** on a stock's page, add "goes above / below" targets; Telegram tells you when it
+  happens. Under ⚙️ Settings you choose the big-move alert (default: stocks ±5 %, coins ±8 % in a day).
+  Targets are saved encrypted with your dashboard password (`config/price_alerts.json`). Checked every
+  15 minutes with Yahoo prices (up to 15 min delayed). Code: `analyzer/price_alerts.py`.
+- **📅 Earnings:** the Watchlist shows companies reporting in the next 14 days, each stock page shows
+  its next date, and Telegram reminds you at 18:00 the evening before. Code: `analyzer/earnings.py`.
+- **🌙 Evening recap:** right after the US close (00:15 Istanbul, Monday to Friday) a short Telegram
+  message, without sound, covers what moved and why, the paper account and upcoming earnings.
+  Written by Claude, about $0.10 a day. Workflow: `.github/workflows/evening-recap.yml`.
+
 **Install on iPhone:** open the address in Safari, tap **Share ⬆️ → Add to Home Screen**.
 It then opens full-screen like a normal app.
 

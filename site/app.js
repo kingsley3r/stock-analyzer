@@ -168,6 +168,7 @@ async function load(typedPassword) {
         const pw = typedPassword || savedPassword();
         if (!pw) { showLock(); return; }
         lock.key = await deriveKey(pw);
+        lock.password = pw;  // kept in memory only, to encrypt price alerts you save
         lock.keySalt = lock.info.salt;
       }
     }
@@ -402,7 +403,7 @@ function pageWatchlist() {
   return `<div class="edit-bar"><span class="sub">${q.filter((x) => x.live && live.prices[x.symbol]).length ? "● Some prices are live" : "Prices refresh every 15 minutes"}</span>
       <button class="pill-btn" data-act="edit">✏️ Edit list</button></div>` +
     (state.flash ? `<div class="card notice">${state.flash}</div>` : "") +
-    favBlock + block(`🇺🇸 US stocks ${marketTag("us")}`, us) + block(`🇪🇺 Europe ${marketTag("de")}`, eu) + block("₿ Crypto", crypto) +
+    favBlock + earningsSection() + block(`🇺🇸 US stocks ${marketTag("us")}`, us) + block(`🇪🇺 Europe ${marketTag("de")}`, eu) + block("₿ Crypto", crypto) +
     `<p class="disclaimer">Prices from Yahoo Finance (European stocks about 15 min delayed). Live where marked ● LIVE.</p>`;
 }
 
@@ -545,6 +546,7 @@ function pageDetail(file) {
       <div class="chg num">${liveChange(q)} today ${q.live ? `<span class="live-tag" data-livetag="${esc(q.symbol)}">${live.prices[q.symbol] ? "● LIVE" : "○ connecting"}</span>` : `· last price ${esc(q.last_date)}, may be delayed`}</div>
     </div>
     ${sig ? `<div style="margin-top:12px">${signalCard(sig)}</div>` : ""}
+    ${earningsLine(q)}
 
     <div class="controls">${seg("range", ["1M", "3M", "6M", "1Y", "2Y"], state.range)}${seg("type", ["line", "candles"], state.chartType)}</div>
     <div class="card" style="padding:10px 6px 6px">
@@ -554,6 +556,8 @@ function pageDetail(file) {
       <div class="readout num" id="readout">Touch the chart to see values.</div>
       <div id="chart"></div>
     </div>
+
+    ${alertsCard(q)}
 
     <h2 class="section-title">📊 Key numbers</h2>
     <div class="stats">
@@ -872,6 +876,7 @@ function keyField() {
 
 // ---------------------------------------------------------------- settings page
 function pageSettings() {
+  const pa = priceAlertCfg();
   const a = { enabled: true, quiet_enabled: true, quiet_from: "23:00", quiet_to: "07:00", quiet_mode: "silent", ...(state.data.alerts || {}) };
   const t = (v) => typeof v === "number" ? `${String(Math.floor(v / 60) % 24).padStart(2, "0")}:${String(v % 60).padStart(2, "0")}` : String(v).padStart(5, "0");
   const toggle = (id, on, label, hint) => `<label class="toggle-row"><span><b>${label}</b>${hint ? `<span class="hint">${hint}</span>` : ""}</span>
@@ -892,6 +897,17 @@ function pageSettings() {
         </select>
       </div>
     </form>
+
+    <h2 class="section-title">🚀 Big-move alerts</h2>
+    <div class="card settings">
+      ${toggle("pa-on", pa.moves_enabled, "Alert me on big daily moves", "For every stock and coin on your watchlist.")}
+      <div class="time-row">
+        <label>Stocks move more than (%) <input type="number" id="pa-stock" min="1" max="50" step="0.5" value="${esc(pa.move_pct)}"></label>
+        <label>Coins move more than (%) <input type="number" id="pa-coin" min="1" max="50" step="0.5" value="${esc(pa.crypto_move_pct)}"></label>
+      </div>
+      <p class="hint">Price targets for single stocks: open the stock and use 🔔 Price alerts.
+        ${pa.targets.length ? `You have ${pa.targets.length}: ${pa.targets.map((a) => `${esc(a.symbol)} ${"above" in a ? "above" : "below"} ${esc(a.above ?? a.below)}`).join(", ")}.` : ""}</p>
+    </div>
     ${state.editError ? `<p class="lock-error" style="margin:10px 4px 0">${esc(state.editError)}</p>` : ""}
     ${state.flash ? `<div class="card notice">${esc(state.flash)}</div>` : ""}
     <div class="card save-card">${keyField()}
@@ -912,6 +928,9 @@ async function saveSettings() {
     quiet_mode: document.getElementById("al-mode").value,
   };
   state.data.alerts = { ...(state.data.alerts || {}), ...cfg };  // keep the form as typed
+  const paIn = { on: document.getElementById("pa-on").checked,
+    stock: Number(document.getElementById("pa-stock").value) || 5, coin: Number(document.getElementById("pa-coin").value) || 8 };
+  state.data.price_alerts = { ...priceAlertCfg(), moves_enabled: paIn.on, move_pct: paIn.stock, crypto_move_pct: paIn.coin };
   if (!token) { state.editError = "Please paste your GitHub key first."; render(); return; }
   state.saving = true; state.editError = ""; state.flash = ""; render();
   const yaml = `# News alert settings, saved from the app (⚙️ Settings) on ${new Date().toISOString().slice(0, 10)}.
@@ -924,6 +943,10 @@ quiet_mode: ${cfg.quiet_mode}
 `;
   try {
     await ghSave("config/alerts.yaml", yaml, "Update alert settings from the app", token);
+    const pa = { ...priceAlertCfg(), moves_enabled: paIn.on, move_pct: paIn.stock, crypto_move_pct: paIn.coin };
+    await ghSave("config/price_alerts.json", await sealForRepo({ ...pa, targets: pa.targets.map(({ fired, ...a }) => a) }),
+      "Update price alerts from the app", token);
+    state.data.price_alerts = pa;
     state.flash = "✅ Saved. Alerts follow the new settings within about 15 minutes.";
   } catch (e) {
     state.editError = e.message || "Saving failed. Check your internet connection.";
@@ -1071,6 +1094,336 @@ view.addEventListener("submit", (e) => {
   document.querySelector("#suggest [data-pick]:not([disabled])")?.click();
 });
 
+// ================================================================ new tools
+// 💼 Portfolio (your trades, stored only on this phone), 🧪 paper trading,
+// 📅 earnings dates and 🔔 price alerts.
+
+const money = (v, cur = "$") => v == null ? "–"
+  : `${v < 0 ? "−" : ""}${cur}${Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const signedMoney = (v, cur = "$") => v == null ? "–" : `${v > 0 ? "+" : ""}${money(v, cur)}`;
+const guessCurrency = (sym) => /\.(DE|AS|PA|MI|MC|BR|VI|HE|IR|LS)$/.test(sym) ? "€" : /\.L$/.test(sym) ? "GBp " : /\.CO$/.test(sym) ? "DKK "
+  : /\.SW$/.test(sym) ? "CHF " : /\.(ST)$/.test(sym) ? "SEK " : /\.OL$/.test(sym) ? "NOK " : "$";
+const todayISO = () => new Date().toLocaleDateString("en-CA", { timeZone: TZ });
+const nice = (iso, opts = { weekday: "short", day: "numeric", month: "short" }) =>
+  new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { ...opts, timeZone: "UTC" });
+
+// ---------------------------------------------------------------- portfolio (phone only)
+const book = {
+  list() { try { return JSON.parse(localStorage.getItem("trades") || "[]"); } catch (e) { return []; } },
+  save(l) { try { localStorage.setItem("trades", JSON.stringify(l)); return true; } catch (e) { return false; } },
+};
+
+// Turns your trades into holdings (average-cost method) with today's values.
+function holdings() {
+  const pos = {};
+  const trades = book.list().slice().sort((a, b) => (a.date + a.id).localeCompare(b.date + b.id));
+  for (const t of trades) {
+    const p = pos[t.symbol] ||= { symbol: t.symbol, name: t.name || t.symbol, shares: 0, cost: 0, realized: 0 };
+    const n = Number(t.shares), px = Number(t.price), fee = Number(t.fee || 0);
+    if (t.side === "sell") {
+      const avg = p.shares ? p.cost / p.shares : 0, sold = Math.min(n, p.shares);
+      p.realized += sold * (px - avg) - fee;
+      p.cost -= sold * avg; p.shares -= sold;
+    } else {
+      p.shares += n; p.cost += n * px + fee;
+    }
+  }
+  const rows = Object.values(pos).map((p) => {
+    const q = quoteFor(p.symbol);
+    const cur = q?.currency ?? guessCurrency(p.symbol);
+    const c = q ? current(q) : null;
+    const last = c?.price ?? null;
+    const prev = q && c?.chg != null ? last / (1 + c.chg / 100) : last;
+    const value = last != null ? p.shares * last : null;
+    return { ...p, q, cur, last, avg: p.shares ? p.cost / p.shares : null, value,
+      dayChange: last != null && p.shares ? p.shares * (last - prev) : 0,
+      unrealized: value != null ? value - p.cost : null };
+  });
+  const totals = {};
+  for (const r of rows) {
+    const t = totals[r.cur] ||= { cur: r.cur, value: 0, cost: 0, day: 0, unrealized: 0, realized: 0, priced: true };
+    if (r.shares > 1e-9) {
+      if (r.value == null) { t.priced = false; t.value += r.cost; } else t.value += r.value;
+      t.cost += r.cost; t.day += r.dayChange; t.unrealized += r.unrealized ?? 0;
+    }
+    t.realized += r.realized;
+  }
+  return { open: rows.filter((r) => r.shares > 1e-9).sort((a, b) => (b.value ?? b.cost) - (a.value ?? a.cost)),
+    closed: rows.filter((r) => r.shares <= 1e-9), totals: Object.values(totals), trades };
+}
+
+function pagePortfolio() {
+  const tab = state.pfTab || "mine";
+  const seg = `<div class="seg wide" data-seg="pf">
+      <button data-v="mine" class="${tab === "mine" ? "on" : ""}">💼 My portfolio</button>
+      <button data-v="paper" class="${tab === "paper" ? "on" : ""}">🧪 Paper trading</button></div>`;
+  return seg + (tab === "paper" ? paperView() : myPortfolio());
+}
+
+function myPortfolio() {
+  const h = holdings();
+  const totalCards = h.totals.filter((t) => t.cost || t.realized).map((t) => {
+    const pct = t.cost ? t.unrealized / t.cost * 100 : null, dayPct = t.value - t.day ? t.day / (t.value - t.day) * 100 : null;
+    return `<div class="card pf-total">
+      <div class="k">Total value${h.totals.length > 1 ? ` · ${esc(t.cur.trim())}` : ""}</div>
+      <div class="big num">${money(t.value, t.cur)}</div>
+      <div class="pf-sub num"><span class="${dir(t.day)}-text">${signedMoney(t.day, t.cur)} (${fmtPct(dayPct)}) today</span></div>
+      <div class="pf-grid num">
+        <div><span class="k">Profit/loss (open)</span><b class="${dir(t.unrealized)}-text">${signedMoney(t.unrealized, t.cur)}${pct != null ? ` · ${fmtPct(pct)}` : ""}</b></div>
+        <div><span class="k">Realized (sold)</span><b class="${dir(t.realized)}-text">${signedMoney(t.realized, t.cur)}</b></div>
+      </div>
+      ${t.priced ? "" : `<p class="hint">Some holdings aren't on your watchlist, so they're counted at what you paid.</p>`}
+    </div>`;
+  }).join("");
+  const holdingRow = (r) => {
+    const inner = `${logo(r.symbol, r.name)}
+      <div class="who"><div class="t">${esc(r.name)}</div>
+        <div class="s">${+r.shares.toFixed(6)} × avg ${fmtPrice(r.avg, r.cur)}</div></div>
+      <div class="price"><div class="p num">${r.value != null ? money(r.value, r.cur) : "no price"}</div>
+        ${r.unrealized != null ? `<span class="pill ${dir(r.unrealized)} num">${signedMoney(r.unrealized, r.cur)}</span>` : `<span class="hint">not on watchlist</span>`}</div>`;
+    return r.q ? `<a class="row" href="#/s/${r.q.file}">${inner}</a>` : `<div class="row">${inner}</div>`;
+  };
+  const editing = state.tradeEdit ? h.trades.find((t) => t.id === state.tradeEdit) : null;
+  const t = editing || { side: "buy", date: todayISO() };
+  const opts = [...new Map([...(state.data.quotes || []).filter((q) => q.group !== "index").map((q) => [q.symbol, q.name]),
+    ...(window.SYMBOLS || []).filter((s) => s[2] !== "index").map((s) => [s[0], s[1]])]).entries()];
+  return `
+    ${totalCards || `<div class="card empty">Add your first trade below. Your portfolio is saved only on this phone.</div>`}
+    ${h.open.length ? `<h2 class="section-title">📦 Holdings</h2><div class="list">${h.open.map(holdingRow).join("")}</div>` : ""}
+
+    <h2 class="section-title" id="trade-form-title">${editing ? "✏️ Edit trade" : "➕ Add a trade"}</h2>
+    <form class="card settings trade-form" id="trade-form" autocomplete="off">
+      <div class="seg wide" data-seg="side">
+        <button type="button" data-v="buy" class="${t.side !== "sell" ? "on" : ""}">🟢 Bought</button>
+        <button type="button" data-v="sell" class="${t.side === "sell" ? "on" : ""}">🔴 Sold</button></div>
+      <input type="hidden" id="tr-side" value="${t.side === "sell" ? "sell" : "buy"}">
+      <label class="k">Stock or coin <input id="tr-symbol" list="sym-list" required placeholder="e.g. NVDA, SAP.DE, BTC-USD" value="${esc(t.symbol || "")}" autocapitalize="characters" spellcheck="false"></label>
+      <datalist id="sym-list">${opts.map(([s, n]) => `<option value="${esc(s)}">${esc(n)}</option>`).join("")}</datalist>
+      <div class="time-row">
+        <label>Shares / coins <input id="tr-shares" type="number" inputmode="decimal" step="any" min="0" required value="${esc(t.shares ?? "")}"></label>
+        <label>Price each <input id="tr-price" type="number" inputmode="decimal" step="any" min="0" required value="${esc(t.price ?? "")}"></label>
+      </div>
+      <div class="time-row">
+        <label>Date <input id="tr-date" type="date" required value="${esc(t.date)}"></label>
+        <label>Fee (optional) <input id="tr-fee" type="number" inputmode="decimal" step="any" min="0" value="${esc(t.fee ?? "")}"></label>
+      </div>
+      <div class="btn-row"><button type="submit" class="primary">${editing ? "💾 Save changes" : "➕ Add trade"}</button>
+        ${editing ? `<button type="button" class="pill-btn" data-act="trade-cancel">Cancel</button>` : ""}</div>
+    </form>
+    ${state.editError ? `<p class="lock-error" style="margin:10px 4px 0">${esc(state.editError)}</p>` : ""}
+
+    ${h.trades.length ? `<h2 class="section-title">🧾 Your trades</h2><div class="list">${h.trades.slice().reverse().map((x) => `
+      <div class="row edit-row">${logo(x.symbol, x.name, "sm")}
+        <div class="who"><div class="t">${x.side === "sell" ? "🔴 Sold" : "🟢 Bought"} ${+Number(x.shares).toFixed(6)} ${esc(x.symbol)}</div>
+          <div class="s">${nice(x.date, { day: "numeric", month: "short", year: "numeric" })} · ${fmtPrice(Number(x.price), quoteFor(x.symbol)?.currency ?? guessCurrency(x.symbol))} each</div></div>
+        <button class="mv" data-trade-edit="${esc(x.id)}" aria-label="Edit">✏️</button>
+        <button class="remove" data-trade-del="${esc(x.id)}" aria-label="Delete">✕</button></div>`).join("")}</div>` : ""}
+
+    <div class="card backup">
+      <p class="hint">🔒 Your trades are saved only on this phone, never online. Make a backup now and then:</p>
+      <div class="btn-row"><button class="pill-btn" data-act="pf-export">⬇️ Save backup file</button>
+        <label class="pill-btn">⬆️ Restore<input type="file" id="pf-import" accept="application/json,.json" hidden></label></div>
+    </div>`;
+}
+
+function paperView() {
+  const p = state.data.paper;
+  if (!p) return `<div class="card empty">Paper trading starts with the next update.</div>`;
+  const r = p.rules;
+  const posRow = (x) => {
+    const q = quoteFor(x.symbol);
+    return `<a class="row" href="${q ? `#/s/${q.file}` : "#/portfolio"}">${logo(x.symbol, x.name)}
+      <div class="who"><div class="t">${esc(x.name)}</div><div class="s">${nice(x.entry_date, { day: "numeric", month: "short" })} at ${fmtPrice(x.entry_price, q?.currency ?? "")}</div></div>
+      <div class="price"><div class="p num">${money(x.value)}</div><span class="pill ${dir(x.pnl)} num">${signedMoney(x.pnl)} · ${fmtPct(x.pnl_pct)}</span></div></a>`;
+  };
+  const why = { "signal": "SELL signal", "stop-loss": "stop-loss", "take-profit": "take profit" };
+  return `
+    <div class="card pf-total">
+      <div class="k">🧪 Paper account (fake money)</div>
+      <div class="big num">${money(p.total)}</div>
+      <div class="pf-sub num"><span class="${dir(p.pnl)}-text">${signedMoney(p.pnl)} (${fmtPct(p.pnl_pct)}) since start</span>
+        · <span class="${dir(p.day_change)}-text">${signedMoney(p.day_change)} today</span></div>
+      <div class="pf-grid num">
+        <div><span class="k">Cash</span><b>${money(p.cash)}</b></div>
+        <div><span class="k">Invested</span><b>${money(p.invested)}</b></div>
+        <div><span class="k">Closed trades</span><b>${p.closed}${p.win_rate != null ? ` · ${p.win_rate}% won` : ""}</b></div>
+        <div><span class="k">Started</span><b>${p.started ? nice(p.started, { day: "numeric", month: "short" }) : "–"}</b></div>
+      </div>
+    </div>
+    <p class="hint rules">Rules: start ${money(r.start_cash)}, buy ${money(r.per_trade)} on every 🟢 BUY signal, sell on 🔴 SELL / ⛔ DON'T BUY,
+      or automatically at −${r.stop_loss}% (stop-loss) or +${r.take_profit}% (take profit).</p>
+    <h2 class="section-title">📦 Open positions</h2>
+    ${p.positions.length ? `<div class="list">${p.positions.map(posRow).join("")}</div>` : `<div class="card empty">No open positions. The next 🟢 BUY signal opens one.</div>`}
+    ${p.trades.length ? `<h2 class="section-title">🧾 Closed trades</h2><div class="list">${p.trades.map((t) => `
+      <div class="row">${logo(t.symbol, t.name, "sm")}
+        <div class="who"><div class="t">${esc(t.name)}</div><div class="s">${nice(t.entry_date, { day: "numeric", month: "short" })} → ${nice(t.exit_date, { day: "numeric", month: "short" })} · ${why[t.reason] || t.reason}</div></div>
+        <span class="pill ${dir(t.pnl)} num">${signedMoney(t.pnl)} · ${fmtPct(t.pnl_pct)}</span></div>`).join("")}</div>` : ""}
+    <p class="disclaimer">Amounts are treated as dollars for every market; currency moves are ignored.</p>`;
+}
+
+function saveTrade(e) {
+  e.preventDefault();
+  const val = (id) => document.getElementById(id).value.trim();
+  const symbol = val("tr-symbol").toUpperCase();
+  const shares = Number(val("tr-shares")), price = Number(val("tr-price"));
+  if (!symbol || !(shares > 0) || !(price > 0)) { state.editError = "Please fill in the symbol, shares and price."; render(); return; }
+  const name = quoteFor(symbol)?.name || (window.SYMBOLS || []).find((s) => s[0] === symbol)?.[1] || symbol;
+  const trade = { id: state.tradeEdit || `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    side: val("tr-side"), symbol, name, shares, price, date: val("tr-date") || todayISO(), fee: Number(val("tr-fee")) || 0 };
+  const list = book.list().filter((t) => t.id !== trade.id);
+  list.push(trade);
+  if (!book.save(list)) { state.editError = "This phone didn't allow saving. Turn off private browsing."; render(); return; }
+  state.tradeEdit = null; state.editError = "";
+  render();
+}
+
+function exportTrades() {
+  const blob = new Blob([JSON.stringify({ app: "Market Pulse", saved: new Date().toISOString(), trades: book.list() }, null, 1)],
+    { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `market-pulse-portfolio-${todayISO()}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+async function importTrades(file) {
+  try {
+    const data = JSON.parse(await file.text());
+    const trades = Array.isArray(data) ? data : data.trades;
+    if (!Array.isArray(trades) || !trades.every((t) => t.symbol && t.shares && t.price)) throw new Error();
+    if (!confirm(`Replace your trades on this phone with the ${trades.length} trades from the backup?`)) return;
+    book.save(trades);
+    state.editError = "";
+  } catch (e) { state.editError = "That file isn't a Market Pulse backup."; }
+  render();
+}
+
+// ---------------------------------------------------------------- earnings
+const WHEN_SHORT = { bmo: "before open", amc: "after close", dmh: "during the day" };
+function daysUntil(iso) { return Math.round((new Date(`${iso}T12:00:00Z`) - new Date(`${todayISO()}T12:00:00Z`)) / 86400000); }
+function whenLabel(ev) {
+  const d = daysUntil(ev.date);
+  return d === 0 ? "today" : d === 1 ? "tomorrow" : `in ${d} days`;
+}
+
+function earningsSection() {
+  const soon = (state.data.earnings || []).filter((e) => daysUntil(e.date) >= 0 && daysUntil(e.date) <= 14);
+  if (!soon.length) return "";
+  return `<h2 class="section-title">📅 Earnings soon</h2><div class="list">${soon.map((ev) => {
+    const q = quoteFor(ev.symbol), d = daysUntil(ev.date);
+    return `<a class="row" href="${q ? `#/s/${q.file}` : "#/watchlist"}">${logo(ev.symbol, ev.name)}
+      <div class="who"><div class="t">${esc(ev.name)}</div><div class="s">${nice(ev.date)}${WHEN_SHORT[ev.hour] ? ` · ${WHEN_SHORT[ev.hour]}` : ""}</div></div>
+      <span class="badge ${d <= 1 ? "hold" : "watch"}">${whenLabel(ev)}</span></a>`;
+  }).join("")}</div>`;
+}
+
+function earningsLine(q) {
+  const ev = (state.data.earnings || []).find((e) => e.symbol === q.symbol && daysUntil(e.date) >= 0);
+  if (!ev) return "";
+  return `<div class="card info-line">📅 <b>Next earnings: ${nice(ev.date, { weekday: "long", day: "numeric", month: "long" })}</b>
+    ${WHEN_SHORT[ev.hour] ? `(${WHEN_SHORT[ev.hour]})` : ""} · ${whenLabel(ev)}
+    ${typeof ev.eps_estimate === "number" ? `<div class="hint">Analysts expect earnings per share of ${ev.eps_estimate.toFixed(2)}.</div>` : ""}</div>`;
+}
+
+// ---------------------------------------------------------------- price alerts
+// Saved encrypted with your dashboard password (config/price_alerts.json),
+// so your targets stay private in the public repository.
+function priceAlertCfg() {
+  return { moves_enabled: true, move_pct: 5, crypto_move_pct: 8, targets: [], ...(state.data.price_alerts || {}) };
+}
+
+function alertsCard(q) {
+  if (q.group === "index") return "";
+  const mine = priceAlertCfg().targets.filter((a) => a.symbol === q.symbol);
+  const cur = q.currency || "";
+  return `<h2 class="section-title">🔔 Price alerts</h2>
+    <div class="card settings">
+      ${mine.length ? `<div class="list flat">${mine.map((a) => {
+        const side = "above" in a ? "above" : "below";
+        return `<div class="row edit-row"><div class="who"><div class="t">${side === "above" ? "📈 Above" : "📉 Below"} ${fmtPrice(Number(a[side]), cur)}</div>
+          <div class="s">${a.fired ? "✅ Triggered, delete it to set a new one" : "⏳ Waiting"}</div></div>
+          <button class="remove" data-alert-del="${esc(q.symbol)}|${side}|${a[side]}" aria-label="Delete alert">✕</button></div>`;
+      }).join("")}</div>` : `<p class="hint">Get a Telegram message when ${esc(q.name)} crosses a price you choose.</p>`}
+      <form id="alert-form" class="alert-form" data-symbol="${esc(q.symbol)}">
+        <select id="al-side"><option value="above">📈 goes above</option><option value="below">📉 goes below</option></select>
+        <input id="al-price" type="number" inputmode="decimal" step="any" min="0" required placeholder="${fmtPrice(q.last, "")}">
+        <button type="submit" class="primary" ${state.saving ? "disabled" : ""}>${state.saving ? "Saving…" : "🔔 Add"}</button>
+      </form>
+      ${ghKey.get() ? "" : keyField()}
+      ${state.editError ? `<p class="lock-error">${esc(state.editError)}</p>` : ""}
+      ${state.flash ? `<p class="hint">${esc(state.flash)}</p>` : ""}
+    </div>`;
+}
+
+// Encrypts with your password in the same format the server reads (analyzer/lock.py).
+async function sealForRepo(obj) {
+  const pw = lock.password || savedPassword();
+  if (!pw || !lock.info?.v) throw new Error("Unlock the app with your password first.");
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(pw), "PBKDF2", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: lock.info.iterations, hash: "SHA-256" },
+    base, { name: "AES-GCM", length: 256 }, false, ["encrypt"]);
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(JSON.stringify(obj))));
+  const enc = (u8) => btoa(Array.from(u8, (b) => String.fromCharCode(b)).join(""));
+  return JSON.stringify({ v: 1, kdf: "PBKDF2-SHA256", iterations: lock.info.iterations, salt: enc(salt), iv: enc(iv), ct: enc(ct) });
+}
+
+async function savePriceAlerts(cfg, okMessage) {
+  const typed = document.getElementById("gh-key")?.value.trim();
+  if (typed) ghKey.set(typed);
+  const token = ghKey.get();
+  if (!token) { state.editError = "Please paste your GitHub key first."; render(); return false; }
+  state.saving = true; state.editError = ""; state.flash = ""; render();
+  try {
+    const clean = { ...cfg, targets: cfg.targets.map(({ fired, ...a }) => a) };
+    await ghSave("config/price_alerts.json", await sealForRepo(clean), "Update price alerts from the app", token);
+    state.data.price_alerts = cfg;
+    state.flash = okMessage;
+    return true;
+  } catch (e) {
+    state.editError = e.message || "Saving failed. Check your internet connection.";
+    return false;
+  } finally { state.saving = false; render(); }
+}
+
+view.addEventListener("submit", (e) => {
+  if (e.target.id === "trade-form") return saveTrade(e);
+  if (e.target.id !== "alert-form") return;
+  e.preventDefault();
+  const symbol = e.target.dataset.symbol, side = document.getElementById("al-side").value;
+  const price = Number(document.getElementById("al-price").value);
+  if (!(price > 0)) return;
+  const cfg = priceAlertCfg();
+  cfg.targets = [...cfg.targets.filter((a) => !(a.symbol === symbol && side in a && Number(a[side]) === price)), { symbol, [side]: price }];
+  savePriceAlerts(cfg, "✅ Alert saved. It's checked every 15 minutes.");
+});
+
+view.addEventListener("change", (e) => {
+  if (e.target.id === "pf-import" && e.target.files[0]) importTrades(e.target.files[0]);
+});
+
+view.addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.alertDel) {
+    const [symbol, side, price] = b.dataset.alertDel.split("|");
+    const cfg = priceAlertCfg();
+    cfg.targets = cfg.targets.filter((a) => !(a.symbol === symbol && side in a && String(a[side]) === price));
+    savePriceAlerts(cfg, "🗑️ Alert deleted.");
+  }
+  if (b.dataset.tradeDel && confirm("Delete this trade?")) { book.save(book.list().filter((t) => t.id !== b.dataset.tradeDel)); render(); }
+  if (b.dataset.tradeEdit) { state.tradeEdit = b.dataset.tradeEdit; render(); document.getElementById("trade-form-title")?.scrollIntoView({ behavior: "smooth" }); }
+  if (b.dataset.act === "trade-cancel") { state.tradeEdit = null; render(); }
+  if (b.dataset.act === "pf-export") exportTrades();
+  const seg = b.closest("[data-seg]");
+  if (seg?.dataset.seg === "pf") { state.pfTab = b.dataset.v; render(); }
+  if (seg?.dataset.seg === "side") {
+    document.getElementById("tr-side").value = b.dataset.v;
+    seg.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+  }
+});
+
 // ---------------------------------------------------------------- router
 
 function render() {
@@ -1080,7 +1433,7 @@ function render() {
   const hash = location.hash || "#/";
   const [, page, arg] = hash.split("/");
   const tab = page === "s" ? "watchlist" : page || "today";
-  const titles = { today: "Today", watchlist: "Watchlist", news: "News", videos: "Videos", record: "Track record", settings: "Settings" };
+  const titles = { today: "Today", watchlist: "Watchlist", news: "News", videos: "Videos", record: "Track record", settings: "Settings", portfolio: "Portfolio" };
   document.getElementById("page-title").textContent = page === "s" ? "" : titles[tab];
   document.querySelectorAll(".tabbar a").forEach((a) => a.classList.toggle("active", a.dataset.tab === tab));
 
@@ -1089,7 +1442,7 @@ function render() {
     const q = state.data.quotes.find((x) => x.file === arg);
     if (q) drawChart(q);
   } else {
-    view.innerHTML = { today: pageToday, watchlist: pageWatchlist, news: pageNews, videos: pageVideos, record: pageRecord, settings: pageSettings }[tab]();
+    view.innerHTML = { today: pageToday, watchlist: pageWatchlist, news: pageNews, videos: pageVideos, record: pageRecord, settings: pageSettings, portfolio: pagePortfolio }[tab]();
   }
   tickClocks();
 }
@@ -1111,7 +1464,7 @@ view.addEventListener("click", (e) => {
   if (b.dataset.act === "save") saveWatchlist();
   if (b.dataset.act === "forget-key") { ghKey.set(""); render(); }
   const seg = b.closest("[data-seg]");
-  if (seg) {
+  if (seg && (seg.dataset.seg === "range" || seg.dataset.seg === "type")) {
     if (seg.dataset.seg === "range") state.range = b.dataset.v;
     if (seg.dataset.seg === "type") state.chartType = b.dataset.v;
     const scroll = window.scrollY; render(); window.scrollTo(0, scroll);
@@ -1127,7 +1480,10 @@ view.addEventListener("click", (e) => {
   }
 });
 
-window.addEventListener("hashchange", () => { render(); window.scrollTo(0, 0); });
+window.addEventListener("hashchange", () => {
+  state.flash = ""; state.editError = ""; state.tradeEdit = null;  // messages belong to the page they were shown on
+  render(); window.scrollTo(0, 0);
+});
 document.getElementById("refresh").addEventListener("click", () => load());
 // Reload fresh data when you come back to the app (unless the lock screen is showing).
 document.addEventListener("visibilitychange", () => {

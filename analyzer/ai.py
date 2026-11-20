@@ -122,14 +122,19 @@ def explain_alerts(items: list[dict], model: str, effort: str = "low") -> dict[s
 
 
 def write_digest(payload: dict, model: str, effort: str = "medium") -> str:
+    return write_text(SYSTEM_PROMPT, payload, model, effort, what="the digest")
+
+
+def write_text(system: str, payload: dict, model: str, effort: str = "medium", what: str = "the text") -> str:
+    """Sends the data as JSON with the given instructions; returns Claude's text."""
     client = make_client()
     user_content = "Here is today's data:\n\n" + json.dumps(payload, ensure_ascii=False, indent=1)
-    log.info("Asking %s for the digest (%d characters of input)", model, len(user_content))
+    log.info("Asking %s for %s (%d characters of input)", model, what, len(user_content))
 
     request = dict(
         model=model,
         max_tokens=16000,
-        system=SYSTEM_PROMPT,
+        system=system,
         output_config={"effort": effort},
         messages=[{"role": "user", "content": user_content}],
     )
@@ -142,7 +147,7 @@ def write_digest(payload: dict, model: str, effort: str = "medium") -> str:
         response = client.messages.create(**request)
 
     if response.stop_reason == "refusal":
-        raise RuntimeError("Claude declined to write the digest")
+        raise RuntimeError(f"Claude declined to write {what}")
     text = "".join(block.text for block in response.content if block.type == "text").strip()
     if not text:
         raise RuntimeError(f"Empty response from Claude (stop_reason={response.stop_reason})")

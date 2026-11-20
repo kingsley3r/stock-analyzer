@@ -27,3 +27,24 @@ news_alerts:
   ai_summary: true
   model: claude-opus-5-5   # claude-haiku-5-5 is ~40x cheaper, but less careful
   effort: low
+
+price_alerts:
+  # Defaults; change them in the app (⚙️ Settings and 🔔 on a stock's page).
+  moves_enabled: true
+  move_pct: 5              # alert when a stock moves more than this % in a day
+  crypto_move_pct: 8       # ... or a coin moves more than this %
+
+paper_trading:
+  # Fake-money trading that follows the signals. See analyzer/paper.py.
+  start_cash: 1000
+  per_trade: 100
+  stop_loss: 8             # sell when the price falls this % below the buy price
+  take_profit: 15          # sell when the price rises this % above the buy price
+
+earnings:
+  enabled: true
+  reminder_hour: 18        # Istanbul time, the evening before
+
+evening_recap:
+  enabled: true
+  silent: true             # arrives without sound
