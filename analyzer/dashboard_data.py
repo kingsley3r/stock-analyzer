@@ -17,7 +17,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import news, prices, telegram, youtube
+from . import news, prices, telegram, track_record, youtube
 from .lock import Locker
 from .config import ROOT, load_dotenv, load_yaml
 
@@ -166,6 +166,7 @@ def build() -> None:
     hist_dir.mkdir(parents=True, exist_ok=True)
 
     quotes = []
+    candles_by_symbol = {}
     for entry, df in prices.download_history(watchlist, "2y"):
         symbol, name, group, tags = entry
         snap = prices.snapshot_from_history(entry, df)
@@ -176,6 +177,7 @@ def build() -> None:
              round(float(r.Low), 4), round(float(r.Close), 4), int(r.Volume or 0)]
             for ts, r in df.iterrows()
         ]
+        candles_by_symbol[symbol] = candles
         write(hist_dir / f"{safe_name(symbol)}.json", {"symbol": symbol, "candles": candles})
         q = snap.to_dict()
         q["file"] = safe_name(symbol)
@@ -191,10 +193,19 @@ def build() -> None:
     if digest:
         match_symbols(digest["signals"], quotes)
 
+    # Track record: add today's signals to the saved log, then score all of them.
+    record_file = Path(os.environ.get("RECORD_FILE", ROOT / "record" / "signals.json"))
+    record_file.parent.mkdir(parents=True, exist_ok=True)
+    entries = track_record.load_log(record_file, password or None)
+    entries = track_record.record_digest(entries, digest, quotes)
+    track_record.save_log(record_file, entries, password or None)
+    record = track_record.evaluate(entries, candles_by_symbol)
+
     latest = {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "quotes": quotes,
         "digest": digest,
+        "track_record": record,
         "news": [a.to_dict() | {"ts": int(a.published)} for a in articles],
         "videos": [v.to_dict() | {"id": youtube.video_id_from_link(v.link)} for v in videos],
     }

@@ -168,6 +168,8 @@ function pageToday() {
     ${signals.length ? signals.map(signalCard).join("") :
       `<div class="card empty">No signals yet today. They appear after the morning digest.</div>`}
 
+    ${recordTeaser()}
+
     <h2 class="section-title">🔥 Biggest moves</h2>
     <div class="list">${movers.map(row).join("")}</div>
 
@@ -177,6 +179,14 @@ function pageToday() {
       : `<div class="card empty">The briefing appears here after the morning digest.</div>`}
     ${installHint()}
     <p class="disclaimer">⚠️ Signals are AI analysis, not financial advice, and can be wrong.</p>`;
+}
+
+function recordTeaser() {
+  const r = state.data.track_record;
+  if (!r || !r.total) return "";
+  const b = r.buy, x = r.sell;
+  const part = (label, s) => s.scored ? `${label} ${s.right}/${s.scored} right` : `${label} ⏳`;
+  return `<a class="card teaser" href="#/record">✅ <b>Track record:</b> ${part("BUY", b)} · ${part("SELL", x)} <span class="chev">›</span></a>`;
 }
 
 function signalCard(s) {
@@ -246,6 +256,52 @@ function pageVideos() {
         <div><div class="title">${esc(x.title)}</div>
         <div class="meta">${esc(x.channel)} · ${esc(x.topic)}</div></div>
       </a>`).join("") : `<div class="empty">No new videos yet today.</div>`}</div>`;
+}
+
+// Track record: how did earlier signals turn out?
+function pageRecord() {
+  const r = state.data.track_record;
+  if (!r || !r.total) {
+    return `<div class="card empty">No signals saved yet. From now on every morning's signals are saved here
+      and checked against what the price really did.</div>`;
+  }
+  const summary = (title, s, verb) => `
+    <div class="card score">
+      <div class="k">${title}</div>
+      ${s.scored ? `<div class="big num">${s.right} of ${s.scored} right</div>
+        <div class="meter" role="img" aria-label="${s.hit_rate}% right"><span style="width:${s.hit_rate}%"></span></div>
+        <div class="hint num">${s.hit_rate}% · price ${verb} on average <b class="${dir(s.avg_change)}-text">${fmtPct(s.avg_change)}</b> after 1 week</div>`
+        : `<div class="big">⏳ Not scored yet</div>`}
+      ${s.pending ? `<div class="hint">${s.pending} still waiting for their 1-week result</div>` : ""}
+    </div>`;
+  const icon = { right: "✅", wrong: "❌", pending: "⏳", info: "➖" };
+  const cell = (v) => `<span class="${dir(v)}-text num">${v == null ? "·" : fmtPct(v)}</span>`;
+  const days = [...new Set(r.items.map((i) => i.date))];
+  const dayLabel = (d) => new Date(d + "T12:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+
+  return `
+    <div class="score-grid">
+      ${summary("🟢 BUY calls", r.buy, "moved")}
+      ${summary("🔴 SELL & ⛔ DON'T BUY", r.sell, "moved")}
+    </div>
+    <p class="explain">A <b>BUY</b> counts as ✅ right if the price is higher one week later.
+      A <b>SELL</b> or <b>DON'T BUY</b> is right if the price is lower. HOLD and WATCH are shown but not scored.
+      Changes are measured from the last closing price before the signal. Tracking since ${esc(dayLabel(r.since))}.</p>
+    ${days.map((d) => `
+      <h2 class="section-title">${esc(dayLabel(d))}</h2>
+      <div class="list">
+        <div class="rec-row rec-head"><span></span><span>1 day</span><span>1 week</span><span>1 month</span><span></span></div>
+        ${r.items.filter((i) => i.date === d).map((i) => {
+          const q = quoteFor(i.symbol);
+          return `<a class="rec-row" href="${q ? `#/s/${q.file}` : "#/record"}">
+            <span class="rec-who"><span class="badge ${i.action}">${SIGNAL_EMOJI[i.action] || ""} ${esc(i.label)}</span>
+              <b>${esc(i.symbol)}</b><small class="num">from ${fmtPrice(i.entry_price, q?.currency || "")}</small></span>
+            ${cell(i["1d"])}${cell(i["1w"])}${cell(i["1m"])}
+            <span title="${i.result}">${icon[i.result]}</span>
+          </a>`;
+        }).join("")}
+      </div>`).join("")}
+    <p class="disclaimer">Past results don't guarantee future results.</p>`;
 }
 
 function pageDetail(file) {
@@ -394,7 +450,7 @@ function render() {
   const hash = location.hash || "#/";
   const [, page, arg] = hash.split("/");
   const tab = page === "s" ? "watchlist" : page || "today";
-  const titles = { today: "Today", watchlist: "Watchlist", news: "News", videos: "Videos" };
+  const titles = { today: "Today", watchlist: "Watchlist", news: "News", videos: "Videos", record: "Track record" };
   document.getElementById("page-title").textContent = page === "s" ? "" : titles[tab];
   document.querySelectorAll(".tabbar a").forEach((a) => a.classList.toggle("active", a.dataset.tab === tab));
 
@@ -403,7 +459,7 @@ function render() {
     const q = state.data.quotes.find((x) => x.file === arg);
     if (q) drawChart(q);
   } else {
-    view.innerHTML = { today: pageToday, watchlist: pageWatchlist, news: pageNews, videos: pageVideos }[tab]();
+    view.innerHTML = { today: pageToday, watchlist: pageWatchlist, news: pageNews, videos: pageVideos, record: pageRecord }[tab]();
   }
 }
 

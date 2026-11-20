@@ -78,9 +78,9 @@ After that it runs by itself every morning.
 
 **Address:** <https://kingsley3r.github.io/stock-analyzer/>
 
-Four tabs: **Today** (signals, biggest moves, the morning briefing), **Watchlist** (every
+Five tabs: **Today** (signals, biggest moves, the morning briefing), **Watchlist** (every
 symbol with a 30-day mini chart; tap one for a full chart with 50- and 200-day averages),
-**News** (filter by your stocks, AI, crypto) and **Videos** (new videos from your channels).
+**News** (filter by your stocks, AI, crypto) and **Videos** (new videos from your channels) and **Record** (how earlier signals turned out).
 It updates every 30 minutes and right after each morning digest.
 
 **One-time setup:**
@@ -107,6 +107,7 @@ How it is built:
 | `site/index.html` | The page skeleton: top bar, content area, bottom tabs, and the lines that make it installable. |
 | `site/styles.css` | All colors and layout. Light and dark mode follow your iPhone setting. |
 | `site/app.js` | Unlocks and loads the data and draws each tab. Read the comments at the top first. |
+| `analyzer/track_record.py` | Saves each day's signals and checks them later: a BUY is ✅ right if the price is higher 1 week later, a SELL / DON'T BUY if it's lower. Shown in the **Record** tab. The saved log lives (encrypted) on the `track-record` branch. |
 | `analyzer/lock.py` | Encrypts the data with your password before it is published. |
 | `site/vendor/` | The chart library (TradingView Lightweight Charts, free and open source). |
 | `.github/workflows/dashboard.yml` | Rebuilds the data every 30 minutes and publishes the site. |

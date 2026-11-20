@@ -14,7 +14,7 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: read
+  contents: write   # to save the track record on the 'track-record' branch
   pages: write
   id-token: write
 
@@ -28,6 +28,11 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - name: Get the saved track record
+        uses: actions/checkout@v4
+        with:
+          ref: track-record
+          path: record
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -47,6 +52,14 @@ jobs:
           python -m analyzer.dashboard_data
           # Double check: every data file must be encrypted.
           python -c "import json,pathlib,sys; bad=[str(p) for p in pathlib.Path('site/data').rglob('*.json') if p.name!='lock.json' and 'ct' not in json.loads(p.read_text())]; sys.exit('Unencrypted: '+', '.join(bad) if bad else 0)"
+      - name: Save the track record
+        run: |
+          cd record
+          git add -A
+          if git diff --cached --quiet; then echo "No new signals"; exit 0; fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "Track record update $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
