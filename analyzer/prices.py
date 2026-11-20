@@ -82,7 +82,8 @@ def download_history(watchlist: dict, period: str = "1y") -> list[tuple[tuple, "
     log.info("Downloading %s of prices for %d symbols", period, len(symbols))
     data = yf.download(
         symbols, period=period, interval="1d", group_by="ticker",
-        auto_adjust=True, progress=False, threads=True,
+        auto_adjust=True, progress=False,
+        threads=False,  # one at a time: avoids "database is locked" errors in yfinance's cache
     )
     out = []
     for entry in entries:

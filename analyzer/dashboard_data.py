@@ -168,8 +168,10 @@ def build() -> None:
         "videos": [v.to_dict() | {"id": youtube.video_id_from_link(v.link)} for v in videos],
     }
     (SITE_DATA / "latest.json").write_text(json.dumps(latest, ensure_ascii=False), encoding="utf-8")
-    log.info("Dashboard data written: %d quotes, %d articles, %d videos, digest=%s",
-             len(quotes), len(articles), len(videos), bool(latest["digest"]))
+    digest = latest["digest"]
+    log.info("Dashboard data written: %d quotes, %d articles, %d videos, digest=%s, signals=%s",
+             len(quotes), len(articles), len(videos), bool(digest),
+             [f'{s["label"]} {s["symbol"]}' for s in digest["signals"]] if digest else None)
 
 
 if __name__ == "__main__":
