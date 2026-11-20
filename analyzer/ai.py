@@ -43,6 +43,7 @@ Structure:
      ⛔ <b>DON'T BUY</b>: looks risky or overheated; stay away for now
      🟡 <b>HOLD / WAIT</b>: mixed evidence; keep holding or wait for a clearer setup
      👀 <b>WATCH</b>: something is brewing; check it again later today
+   Use the exact symbol from the data (e.g. BTC-USD, ASML.AS), not a shortened one.
    Format each signal like this (one blank line between signals):
      🟢 <b>BUY: NVDA</b> (Nvidia) · Confidence: ⭐⭐ Medium
      ➜ Strong earnings beat 📰 · YouTube channels bullish 🎥 · back above 50-day average 📈

@@ -129,6 +129,21 @@ def latest_digest() -> dict | None:
         "signals": parse_signals(msg["text"]),
     }
 
+def match_symbols(signals: list[dict], quotes: list[dict]) -> None:
+    """The AI sometimes writes 'BTC' or 'ASML' instead of 'BTC-USD' or 'ASML.AS'.
+    Map each signal to the watchlist symbol so the dashboard can link it."""
+    known = {q["symbol"].upper(): q["symbol"] for q in quotes}
+    for sig in signals:
+        sym = sig["symbol"].upper()
+        candidates = [sym, f"{sym}-USD"] + [k for k in known if k.split(".")[0].split("-")[0] == sym]
+        name = sig.get("name", "").lower()
+        candidates += [q["symbol"].upper() for q in quotes if name and q["name"].lower() == name]
+        for c in candidates:
+            if c in known:
+                sig["symbol"] = known[c]
+                break
+
+
 # --------------------------------------------------------------------------- main
 
 def build() -> None:
@@ -160,15 +175,18 @@ def build() -> None:
     yt_sources = {**sources, "youtube_transcripts": False}  # titles are enough here
     videos = youtube.collect_videos(yt_sources, max_per_channel=3)
 
+    digest = latest_digest()
+    if digest:
+        match_symbols(digest["signals"], quotes)
+
     latest = {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "quotes": quotes,
-        "digest": latest_digest(),
+        "digest": digest,
         "news": [a.to_dict() | {"ts": int(a.published)} for a in articles],
         "videos": [v.to_dict() | {"id": youtube.video_id_from_link(v.link)} for v in videos],
     }
     (SITE_DATA / "latest.json").write_text(json.dumps(latest, ensure_ascii=False), encoding="utf-8")
-    digest = latest["digest"]
     log.info("Dashboard data written: %d quotes, %d articles, %d videos, digest=%s, signals=%s",
              len(quotes), len(articles), len(videos), bool(digest),
              [f'{s["label"]} {s["symbol"]}' for s in digest["signals"]] if digest else None)

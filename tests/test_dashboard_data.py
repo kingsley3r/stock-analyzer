@@ -1,4 +1,4 @@
-from analyzer.dashboard_data import entities_to_html, parse_signals, safe_name
+from analyzer.dashboard_data import entities_to_html, match_symbols, parse_signals, safe_name
 
 
 def test_safe_name():
@@ -37,3 +37,12 @@ def test_parse_signals():
     assert s[0]["reasons"].startswith("Strong earnings")
     assert s[2]["reasons"] == ""  # next line is another signal
     assert s[1]["label"] == "DON'T BUY"
+
+
+def test_match_symbols():
+    quotes = [{"symbol": "BTC-USD", "name": "Bitcoin"}, {"symbol": "ASML.AS", "name": "ASML"},
+              {"symbol": "NOVO-B.CO", "name": "Novo Nordisk"}]
+    sigs = [{"symbol": "BTC", "name": ""}, {"symbol": "ASML", "name": ""},
+            {"symbol": "NVO", "name": "Novo Nordisk"}, {"symbol": "XYZ", "name": ""}]
+    match_symbols(sigs, quotes)
+    assert [s["symbol"] for s in sigs] == ["BTC-USD", "ASML.AS", "NOVO-B.CO", "XYZ"]
