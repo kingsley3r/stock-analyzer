@@ -1,9 +1,10 @@
-"""Evening recap: a short Telegram message right after the US market closes
+"""Evening recap: a short message in the app's 🔔 inbox right after the US market closes
 (00:15 Istanbul in winter, 23:15 in summer), covering what moved today and why,
 the paper-trading account and earnings coming up.
 
 Runs from .github/workflows/evening-recap.yml on weekdays. Uses Claude
-(about $0.10 per recap). Turn it off with `evening_recap: enabled: false`
+(about $0.10 per recap). It notifies your phone unless it arrives during your
+quiet time (⚙️ Settings in the app); then it waits in the inbox. Turn it off with `evening_recap: enabled: false`
 in config/settings.yaml.
 
     python -m analyzer.recap --no-send   # print it instead of sending
@@ -19,9 +20,9 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import ai, news, paper, prices, telegram, track_record
+from . import ai, inbox, news, news_alerts, paper, prices, track_record
 from .dashboard_data import currency_for
-from .config import ROOT, load_dotenv, load_yaml, require_env
+from .config import ROOT, load_dotenv, load_yaml
 
 log = logging.getLogger("recap")
 TZ = ZoneInfo("Europe/Istanbul")
@@ -35,7 +36,7 @@ You get JSON with: today's price changes for his watchlist, news headlines from
 the last 14 hours, a paper-trading account that follows the
 app's signals, and upcoming earnings.
 
-Write Telegram HTML; only <b>, <i>, <a href="..."> tags. Escape literal <, >, & as &lt; &gt; &amp;.
+Write simple HTML; only <b>, <i>, <a href="..."> tags, plain newlines for line breaks. Escape literal <, >, & as &lt; &gt; &amp;.
 Short lines, emojis to make it scannable (🟢/🔴 for up/down, 🇺🇸/🇪🇺/₿ for the market).
 
 Structure:
@@ -101,12 +102,10 @@ def main() -> None:
     if args.no_send:
         print(text)
         return
-    token, chat_id = require_env("TELEGRAM_BOT_TOKEN"), require_env("TELEGRAM_CHAT_ID")
-    for part in telegram.split_message(text):
-        telegram._call(token, "sendMessage", chat_id=chat_id, text=part, parse_mode="HTML",
-                       disable_notification=bool(cfg.get("silent", True)),
-                       link_preview_options={"is_disabled": True})
-    log.info("Evening recap sent (%d characters)", len(text))
+    title, body = inbox.split_head(text)
+    quiet = news_alerts.quiet_now(news_alerts.load_settings(), "Europe/Istanbul")
+    inbox.notify("recap", title or "🌙 Evening recap", body, push=not quiet)
+    log.info("Evening recap saved (%d characters)%s", len(text), ", quiet time: no notification" if quiet else "")
 
 
 if __name__ == "__main__":

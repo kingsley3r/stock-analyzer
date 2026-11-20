@@ -1,5 +1,5 @@
 """Earnings calendar: when your watchlist companies report results, plus a
-Telegram reminder the evening before (default 18:00 Istanbul).
+reminder on your phone the evening before (default 18:00 Istanbul).
 
 Dates come from Finnhub (US companies, with your free FINNHUB_API_KEY) and
 Yahoo Finance (everything else). They are fetched once a day and kept in
@@ -17,8 +17,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from . import telegram
-from .news_alerts import APP_URL
+from . import inbox
 
 log = logging.getLogger(__name__)
 TZ = ZoneInfo("Europe/Istanbul")
@@ -84,13 +83,13 @@ def format_reminder(events: list[dict], quotes_by_symbol: dict) -> str:
         est = f" · EPS estimate {ev['eps_estimate']:.2f}" if isinstance(ev.get("eps_estimate"), (int, float)) else ""
         lines.append(f"• <b>{e(ev['name'])}</b> ({e(ev['symbol'])}), {when}{est}")
         if q.get("file"):
-            lines[-1] += f' · <a href="{APP_URL}#/s/{q["file"]}">chart</a>'
+            lines[-1] += f' · <a href="#/s/{q["file"]}">chart</a>'
     lines.append("💡 Prices often jump or drop sharply after earnings.")
     return "\n".join(lines)
 
 
 def run(watchlist: dict, quotes: list[dict], cfg: dict, state_file: Path, finnhub_key: str | None,
-        token: str | None, chat_id: str | None, now: datetime | None = None) -> list[dict]:
+        now: datetime | None = None) -> list[dict]:
     """Refreshes the calendar, sends tomorrow's reminder once, returns upcoming events."""
     now = now or datetime.now(TZ)
     cache = json.loads(state_file.read_text()) if state_file.exists() else {}
@@ -99,11 +98,11 @@ def run(watchlist: dict, quotes: list[dict], cfg: dict, state_file: Path, finnhu
     tomorrow = (now.date() + timedelta(days=1)).isoformat()
     due = [ev for ev in events if ev["date"] == tomorrow]
     reminded = cache.setdefault("reminded", {})
-    if (due and token and chat_id and cfg.get("enabled", True) and now.hour >= int(cfg.get("reminder_hour", 18))
+    if (due and cfg.get("enabled", True) and now.hour >= int(cfg.get("reminder_hour", 18))
             and tomorrow not in reminded):
-        telegram._call(token, "sendMessage", chat_id=chat_id, parse_mode="HTML",
-                       text=format_reminder(due, {q["symbol"]: q for q in quotes}),
-                       link_preview_options={"is_disabled": True})
+        title, body = inbox.split_head(format_reminder(due, {q["symbol"]: q for q in quotes}))
+        title += " · " + ", ".join(ev["symbol"] for ev in due)
+        inbox.notify("earnings", title, body)
         reminded[tomorrow] = now.isoformat(timespec="minutes")
         log.info("Earnings: reminder sent for %s", ", ".join(ev["symbol"] for ev in due))
     cache["reminded"] = {d: v for d, v in reminded.items() if d >= now.date().isoformat()}

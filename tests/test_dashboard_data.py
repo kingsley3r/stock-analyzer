@@ -1,22 +1,9 @@
-from analyzer.dashboard_data import entities_to_html, match_symbols, parse_signals, safe_name
+from analyzer.dashboard_data import match_symbols, parse_signals, safe_name
 
 
 def test_safe_name():
     assert safe_name("^GSPC") == "_GSPC"
     assert safe_name("BTC-USD") == "BTC_USD"
-
-
-def test_entities_to_html_with_emoji_offsets():
-    text = "🟢 BUY: NVDA\nsee news"
-    # "🟢" is 2 UTF-16 units, so "BUY: NVDA" starts at 3
-    entities = [{"type": "bold", "offset": 3, "length": 9},
-                {"type": "text_link", "offset": 17, "length": 4, "url": "https://x.com/a?b=1&c=2"}]
-    out = entities_to_html(text, entities)
-    assert out == '🟢 <b>BUY: NVDA</b><br>see <a href="https://x.com/a?b=1&amp;c=2" target="_blank" rel="noopener">news</a>'
-
-
-def test_entities_escape_plain_text():
-    assert entities_to_html("a < b & c", []) == "a &lt; b &amp; c"
 
 
 def test_parse_signals():

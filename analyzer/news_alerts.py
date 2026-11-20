@@ -1,5 +1,5 @@
-"""Breaking-news alerts: sends a Telegram message when important news about one
-of your watchlist stocks or coins comes in.
+"""Breaking-news alerts: a notification on your phone (and a message in the app's
+🔔 inbox) when important news about one of your watchlist stocks or coins comes in.
 
 Runs as part of every dashboard update (every 15 minutes on GitHub). It uses no
 AI, so it costs nothing: a headline counts as "important" when it names one of
@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import telegram
+from . import inbox
 from .news import Article
 
 log = logging.getLogger(__name__)
@@ -106,7 +106,7 @@ APP_URL = "https://kingsley3r.github.io/stock-analyzer/"
 
 def format_alert(article: Article, item: dict, quote: dict | None, now: float,
                  explained: dict | None = None, style: str = "B") -> str:
-    """One alert as Telegram HTML. Styles: A compact, B verdict first, C clean."""
+    """One alert as simple HTML (first line = headline). Styles: A compact, B verdict first, C clean."""
     e = html.escape
     mins = max(0, int((now - article.published) // 60))
     ago = f"{mins} min ago" if mins < 60 else f"{mins // 60} h ago"
@@ -146,11 +146,12 @@ def format_alert(article: Article, item: dict, quote: dict | None, now: float,
     return "\n".join(lines)
 
 
-def buttons(article: Article, quote: dict | None) -> dict:
+def links(article: Article, quote: dict | None) -> list[dict]:
+    """The buttons under the message in the app."""
     row = [{"text": "📰 Read article", "url": article.link}]
     if quote and quote.get("file"):
-        row.append({"text": "📊 Open in app", "url": f"{APP_URL}#/s/{quote['file']}"})
-    return {"inline_keyboard": [row]}
+        row.append({"text": "📊 Open chart", "url": f"#/s/{quote['file']}"})
+    return row
 
 
 def explain(picked, quotes_by_symbol: dict, cfg: dict) -> dict[str, dict]:
@@ -210,17 +211,14 @@ def quiet_now(cfg: dict, tz: str, now: datetime | None = None) -> bool:
 
 
 def run(articles: list[Article], watchlist: dict, quotes: list[dict], settings: dict,
-        state_file: Path, token: str | None, chat_id: str | None, tz: str = "Europe/Istanbul") -> int:
-    """Sends new alerts and returns how many were sent."""
+        state_file: Path, tz: str = "Europe/Istanbul") -> int:
+    """Saves new alerts to the inbox, notifies your phone and returns how many there were."""
     cfg = settings.get("news_alerts") or {}
     if cfg.get("enabled", True) is False:
         return 0
     silent = quiet_now(cfg, tz)
     if silent and cfg.get("quiet_mode") == "skip":
         log.info("News alerts: quiet time, not sending")
-        return 0
-    if not token or not chat_id:
-        log.info("News alerts: no Telegram secrets, skipping")
         return 0
     sent = json.loads(state_file.read_text()) if state_file.exists() else {}
     now = time.time()
@@ -235,15 +233,13 @@ def run(articles: list[Article], watchlist: dict, quotes: list[dict], settings: 
     style = str(cfg.get("style", "B")).upper()
     for a, it, _ in picked:  # one message per headline, each with its own buttons
         quote = by_symbol.get(it["symbol"])
-        telegram._call(token, "sendMessage", chat_id=chat_id, parse_mode="HTML",
-                       text=format_alert(a, it, quote, now, explained.get(fingerprint(a)), style),
-                       reply_markup=buttons(a, quote), disable_notification=silent,
-                       link_preview_options={"is_disabled": True})
+        title, body = inbox.split_head(format_alert(a, it, quote, now, explained.get(fingerprint(a)), style))
+        inbox.notify("news", title, body, symbol=it["symbol"], links=links(a, quote), push=not silent)
     for a, _, _ in picked:
         sent[fingerprint(a)] = int(now)
     sent = {k: v for k, v in sent.items() if now - v < 3 * 86400}  # forget after 3 days
     state_file.parent.mkdir(parents=True, exist_ok=True)
     state_file.write_text(json.dumps(sent, sort_keys=True))
-    log.info("News alerts: sent %d (%s)%s", len(picked),
-             ", ".join(f"{it['symbol']}: {w}" for _, it, w in picked), " silently (quiet hours)" if silent else "")
+    log.info("News alerts: %d (%s)%s", len(picked),
+             ", ".join(f"{it['symbol']}: {w}" for _, it, w in picked), " in the inbox only (quiet time)" if silent else "")
     return len(picked)

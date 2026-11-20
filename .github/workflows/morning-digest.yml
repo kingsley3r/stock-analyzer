@@ -8,26 +8,46 @@ on:
     - cron: "40 2 * * *"
   workflow_dispatch: {}   # adds a "Run workflow" button for testing
 
+permissions:
+  contents: write   # to save the message in the inbox (track-record branch)
+
 jobs:
   digest:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Get the inbox
+        uses: actions/checkout@v4
+        with:
+          ref: track-record
+          path: record
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
-      - name: Build and send digest
+      - name: Build the digest and notify your phone
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Encrypts the inbox message and signs the iPhone notification.
+          DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
         # Scheduled runs are a backup: they skip if your home computer already sent
         # today's digest. The "Run workflow" button always sends.
         run: python -m analyzer.digest ${{ github.event_name == 'schedule' && '--backup' || '' }}
+      - name: Save it in the inbox
+        if: always()
+        run: |
+          cd record
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then echo "Nothing new to save"; exit 0; fi
+          git commit -m "Morning digest $(date -u +%Y-%m-%dT%H:%MZ)"
+          # Another run may have saved at the same moment: fetch its changes and try again.
+          for i in 1 2 3 4; do git push && exit 0; sleep $((i * 5)); git pull --rebase; done
+          exit 1
       - name: Keep a copy of the digest and data
         if: always()
         uses: actions/upload-artifact@v4

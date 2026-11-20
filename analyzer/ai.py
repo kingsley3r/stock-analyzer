@@ -20,7 +20,7 @@ from the 50- and 200-day averages, volume vs. the 20-day average), the last 24 h
 news headlines, and new videos (title, description, sometimes a transcript) from finance
 YouTube channels.
 
-Write the briefing in English, as Telegram HTML. You may only use these tags:
+Write the briefing in English, as simple HTML (shown in his phone app). You may only use these tags:
 <b>, <i>, <a href="...">. No other tags, no Markdown, no tables. Escape any literal
 <, > or & in text as &lt; &gt; &amp;. Use short lines. Use emojis generously so the
 briefing is easy to scan on a phone: a marker per section, 🟢/🔴 for up/down moves,

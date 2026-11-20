@@ -1,7 +1,7 @@
-"""The morning digest: collect data -> ask Claude -> send to Telegram.
+"""The morning digest: collect data -> ask Claude -> save to the app's inbox and notify your phone.
 
 Run it:
-    python -m analyzer.digest            # full run, sends to Telegram
+    python -m analyzer.digest            # full run, notifies your phone
     python -m analyzer.digest --no-send  # writes the digest but only prints it
     python -m analyzer.digest --dry-run  # only collects data (no AI cost, nothing sent)
     python -m analyzer.digest --backup   # only runs if today's digest wasn't sent yet
@@ -9,13 +9,14 @@ Run it:
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import logging
 import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from . import ai, news, prices, telegram, youtube
+from . import ai, inbox, news, prices, youtube
 from .config import ROOT, load_dotenv, load_yaml, require_env
 
 log = logging.getLogger("digest")
@@ -36,15 +37,8 @@ def collect(watchlist: dict, sources: dict) -> dict:
 
 
 def already_sent_today(now: datetime) -> bool:
-    """True if the pinned message in the Telegram chat is from today (local time)."""
-    try:
-        pinned = telegram.pinned_message_time(require_env("TELEGRAM_BOT_TOKEN"), require_env("TELEGRAM_CHAT_ID"))
-    except Exception as e:
-        log.warning("Could not check whether today's digest was sent (%s); sending anyway", e)
-        return False
-    if pinned is None:
-        return False
-    return datetime.fromtimestamp(pinned, now.tzinfo).date() == now.date()
+    """True if today's digest is already in the inbox (record/inbox/)."""
+    return inbox.sent_today("digest", now)
 
 
 def main() -> None:
@@ -83,33 +77,25 @@ def main() -> None:
     require_env("ANTHROPIC_API_KEY")
     ai_cfg = settings.get("ai", {})
     body = ai.write_digest(data, model=ai_cfg.get("model", "claude-opus-5-5"), effort=ai_cfg.get("effort", "medium"))
-    header = f"☀️ <b>Morning digest</b> · {now:%a %d %b}\n\n"
-    digest = header + body
+    digest = f"☀️ <b>Morning digest</b> · {now:%a %d %b}\n\n" + body
     (out_dir / f"digest-{now:%Y-%m-%d}.html").write_text(digest, encoding="utf-8")
 
     if args.no_send:
         print(digest)
         return
-    token, chat_id = require_env("TELEGRAM_BOT_TOKEN"), require_env("TELEGRAM_CHAT_ID")
-    message_ids = telegram.send_message(
-        token, chat_id, digest, limit=settings.get("telegram", {}).get("max_message_length", 4000),
-    )
-    log.info("Digest sent to Telegram")
-    try:
-        telegram.pin_as_latest_digest(token, chat_id, message_ids[0])
-    except Exception as e:  # pinning is nice to have; never fail the run over it
-        log.warning("Could not pin the digest: %s", e)
+    # The digest is your morning alarm, so it notifies even inside your quiet time.
+    inbox.notify("digest", f"☀️ Morning digest · {now:%a %d %b}", body)
+    log.info("Digest saved to the inbox")
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        # Tell the user on their phone when something breaks, if Telegram is set up.
-        token, chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
-        if token and chat and not isinstance(e, SystemExit):
+        # Tell you on your phone when something breaks.
+        if not isinstance(e, SystemExit):
             try:
-                telegram.send_message(token, chat, f"⚠️ Morning digest failed: {type(e).__name__}: {e}"[:1000])
+                inbox.notify("system", "⚠️ Morning digest failed", html.escape(f"{type(e).__name__}: {e}"[:1000]))
             except Exception:
                 pass
         raise

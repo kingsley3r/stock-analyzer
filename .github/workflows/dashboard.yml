@@ -7,8 +7,8 @@ on:
   schedule:
     - cron: "7,22,37,52 * * * *"   # every 15 minutes
   workflow_run:
-    workflows: ["Morning digest"]
-    types: [completed]          # right after the digest, so signals show up quickly
+    workflows: ["Morning digest", "Evening recap"]
+    types: [completed]          # right after the digest/recap, so they show up in the app quickly
   push:
     branches: [main]
     paths: ["site/**", "analyzer/**", "config/**", ".github/workflows/dashboard.yml"]
@@ -41,8 +41,6 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Build dashboard data (encrypted with your password)
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
           # Only used for the short AI summary in news alerts.
@@ -61,14 +59,17 @@ jobs:
           python -m analyzer.dashboard_data
           # Double check: every data file must be encrypted.
           python -c "import json,pathlib,sys; bad=[str(p) for p in pathlib.Path('site/data').rglob('*.json') if p.name!='lock.json' and 'ct' not in json.loads(p.read_text())]; sys.exit('Unencrypted: '+', '.join(bad) if bad else 0)"
-      - name: Save the track record and sent news alerts
+      - name: Save the track record, inbox and sent alerts
         run: |
           cd record
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           if git diff --cached --quiet; then echo "Nothing new to save"; exit 0; fi
-          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-            commit -m "Track record update $(date -u +%Y-%m-%dT%H:%MZ)"
-          git push
+          git commit -m "Track record update $(date -u +%Y-%m-%dT%H:%MZ)"
+          # Another run may have saved at the same moment: fetch its changes and try again.
+          for i in 1 2 3 4; do git push && exit 0; sleep $((i * 5)); git pull --rebase; done
+          exit 1
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

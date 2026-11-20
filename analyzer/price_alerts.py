@@ -1,4 +1,4 @@
-"""Price alerts on Telegram, checked with every dashboard update (every 15 min).
+"""Price alerts on your phone (and in the 🔔 inbox), checked with every dashboard update (every 15 min).
 
 Two kinds:
 - your own targets, set in the app on a stock's page (🔔), e.g. "tell me when
@@ -21,8 +21,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import telegram
-from .news_alerts import APP_URL, quiet_now
+from . import inbox
+from .news_alerts import quiet_now
 
 log = logging.getLogger(__name__)
 TZ = ZoneInfo("Europe/Istanbul")
@@ -96,9 +96,8 @@ def load_config(password: str | None) -> dict:
     return cfg
 
 
-def run(quotes: list[dict], cfg: dict, quiet_cfg: dict, state_file: Path,
-        token: str | None, chat_id: str | None) -> int:
-    if not token or not chat_id or cfg.get("enabled", True) is False:
+def run(quotes: list[dict], cfg: dict, quiet_cfg: dict, state_file: Path) -> int:
+    if cfg.get("enabled", True) is False:
         return 0
     fired = json.loads(state_file.read_text()) if state_file.exists() else {}
     today = datetime.now(TZ).strftime("%Y-%m-%d")
@@ -110,10 +109,9 @@ def run(quotes: list[dict], cfg: dict, quiet_cfg: dict, state_file: Path,
         log.info("Price alerts: quiet time, not sending")
         return 0
     for key, q, kind, a in hits[:5]:
-        telegram._call(token, "sendMessage", chat_id=chat_id, parse_mode="HTML",
-                       text=format_alert(q, kind, a), disable_notification=silent,
-                       reply_markup={"inline_keyboard": [[{"text": "📊 Open in app",
-                                                          "url": f"{APP_URL}#/s/{q.get('file', '')}"}]]})
+        title, body = inbox.split_head(format_alert(q, kind, a))
+        inbox.notify("move" if kind == "move" else "price", title, body, symbol=q["symbol"], push=not silent,
+                     links=[{"text": "📊 Open chart", "url": f"#/s/{q.get('file', '')}"}])
         fired[key] = today
     # Big-move keys are kept 5 days; targets stay until removed in the app.
     active = {target_id(a) for a in cfg.get("targets") or []}

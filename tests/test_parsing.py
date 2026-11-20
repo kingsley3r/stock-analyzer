@@ -1,6 +1,6 @@
 import time
 
-from analyzer import news, prices, telegram, youtube
+from analyzer import inbox, news, prices, youtube
 
 NOW = time.time()
 RFC = time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime(NOW - 3600))
@@ -44,16 +44,8 @@ def test_dedupe_keeps_newest():
     assert [x.source for x in news.dedupe([a, b])] == ["B"]
 
 
-def test_split_message():
-    text = "\n\n".join(["x" * 1500] * 4)
-    parts = telegram.split_message(text, 4000)
-    assert all(len(p) <= 4000 for p in parts)
-    assert "".join(parts).replace("\n", "") == text.replace("\n", "")
-    assert telegram.split_message("short") == ["short"]
-
-
 def test_strip_tags():
-    assert telegram.strip_tags('<b>Hi</b> &amp; <a href="x">link</a>') == "Hi & link"
+    assert inbox.strip_tags('<b>Hi</b> &amp; <a href="x">link</a>') == "Hi & link"
 
 
 def test_build_snapshot():

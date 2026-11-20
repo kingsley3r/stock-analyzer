@@ -53,13 +53,13 @@ def test_price_alert_targets_and_moves():
 
 def test_price_alerts_run_saves_state(tmp_path, monkeypatch):
     sent = []
-    monkeypatch.setattr(price_alerts.telegram, "_call", lambda t, m, **p: sent.append(p))
+    monkeypatch.setattr(price_alerts.inbox, "notify", lambda kind, title, body, **k: sent.append({"text": title + "\n" + body, "kind": kind}))
     q = [{"symbol": "AMD", "name": "AMD", "group": "stock", "last": 100, "change_1d": -7, "last_date": "2026-11-20",
           "file": "AMD"}]
     state = tmp_path / "pa.json"
-    assert price_alerts.run(q, {"move_pct": 5}, {"quiet_enabled": False}, state, "t", "c") == 1
+    assert price_alerts.run(q, {"move_pct": 5}, {"quiet_enabled": False}, state) == 1
     assert "BIG MOVE · AMD -7.0%" in sent[0]["text"] and "AMD" not in state.read_text()
-    assert price_alerts.run(q, {"move_pct": 5}, {"quiet_enabled": False}, state, "t", "c") == 0
+    assert price_alerts.run(q, {"move_pct": 5}, {"quiet_enabled": False}, state) == 0
 
 
 def test_sealed_file_roundtrip(tmp_path):
@@ -73,19 +73,19 @@ def test_sealed_file_roundtrip(tmp_path):
 
 def test_earnings_reminder_once(tmp_path, monkeypatch):
     sent = []
-    monkeypatch.setattr(earnings.telegram, "_call", lambda t, m, **p: sent.append(p["text"]))
+    monkeypatch.setattr(earnings.inbox, "notify", lambda kind, title, body, **k: sent.append(title + "\n" + body))
     state = tmp_path / "e.json"
     state.write_text(json.dumps({"fetched": "2026-11-20", "events": [
         {"symbol": "NVDA", "name": "Nvidia", "date": "2026-11-21", "hour": "amc", "eps_estimate": 1.2}]}))
     now = datetime(2026, 11, 20, 18, 5, tzinfo=ZoneInfo("Europe/Istanbul"))
-    ev = earnings.run({"stocks": []}, [], {}, state, None, "t", "c", now=now)
+    ev = earnings.run({"stocks": []}, [], {}, state, None, now=now)
     assert ev[0]["symbol"] == "NVDA" and len(sent) == 1 and "after the market closes" in sent[0]
-    earnings.run({"stocks": []}, [], {}, state, None, "t", "c", now=now)
+    earnings.run({"stocks": []}, [], {}, state, None, now=now)
     assert len(sent) == 1
     early = datetime(2026, 11, 20, 17, 0, tzinfo=ZoneInfo("Europe/Istanbul"))
     state.write_text(json.dumps({"fetched": "2026-11-20", "events": [
         {"symbol": "NVDA", "name": "Nvidia", "date": "2026-11-21"}]}))
-    earnings.run({"stocks": []}, [], {}, state, None, "t", "c", now=early)
+    earnings.run({"stocks": []}, [], {}, state, None, now=early)
     assert len(sent) == 1
 
 

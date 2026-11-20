@@ -6,7 +6,7 @@ A personal AI market analyst. Every morning at about **06:00 Istanbul time** it:
 2. reads the last 24 hours of financial news (CNBC, MarketWatch, Yahoo Finance, FT headlines, CoinDesk and more),
 3. checks new videos from finance and crypto YouTube channels, reading the transcripts when it can,
 4. asks Claude to turn all of that into a short briefing with **signals and reasons**,
-5. sends the briefing to your iPhone through **Telegram**.
+5. puts the briefing in the app's **🔔 inbox** and sends you an **iPhone notification**.
 
 > ⚠️ The signals are analysis, not financial advice. They can be wrong. You make every decision.
 
@@ -19,7 +19,7 @@ track record, and a day-trading mode.
 
 ```
 config/*.yaml ──► prices.py   (Yahoo Finance)  ─┐
-                  news.py     (RSS feeds)       ├─► digest.py ──► ai.py (Claude) ──► telegram.py ──► 📱
+                  news.py     (RSS feeds)       ├─► digest.py ──► ai.py (Claude) ──► inbox.py ──► 🔔📱
                   youtube.py  (YouTube feeds)  ─┘
 ```
 
@@ -33,7 +33,7 @@ config/*.yaml ──► prices.py   (Yahoo Finance)  ─┐
 | `analyzer/news.py` | Reads RSS feeds, keeps the last 24 h, removes duplicates. |
 | `analyzer/youtube.py` | Finds new videos per channel and grabs transcripts. |
 | `analyzer/ai.py` | The instructions for Claude (the "system prompt") and the API call. |
-| `analyzer/telegram.py` | Sends the message, splitting it if it is too long. |
+| `analyzer/inbox.py` | Saves every message (encrypted) for the app's 🔔 inbox and sends iPhone notifications (Web Push). |
 | `analyzer/digest.py` | The main program that runs all steps in order. |
 | `.github/workflows/morning-digest.yml` | Tells GitHub to run the digest every morning for free. |
 
@@ -41,15 +41,11 @@ config/*.yaml ──► prices.py   (Yahoo Finance)  ─┐
 
 ## Setup (one time, about 20 minutes)
 
-You need three secret values. Keep them private: anyone with them can use your accounts.
+You need two secret values. Keep them private: anyone with them can use your accounts.
 
-### 1. Telegram bot (free)
+### 1. A dashboard password
 
-1. In Telegram, open **@BotFather** and send `/newbot`.
-2. Choose a name (e.g. "My Market Digest") and a username ending in `bot`.
-3. BotFather replies with a **token** like `123456789:ABCdef...`. That is `TELEGRAM_BOT_TOKEN`.
-4. Open your new bot (tap the link BotFather gives you) and send it any message, e.g. "hi".
-5. Your **chat id** is found in step 4 of "Run it on your computer" below.
+Make up a long password. It encrypts everything the app shows (`DASHBOARD_PASSWORD`).
 
 ### 2. Claude API key (pay per use)
 
@@ -63,7 +59,7 @@ To pay less, set `model: claude-haiku-5-5` in `config/settings.yaml`.
 ### 3. Add the secrets to GitHub
 
 In your repository on github.com: **Settings → Secrets and variables → Actions → New repository secret**.
-Add the three secrets: `ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`.
+Add the secrets: `ANTHROPIC_API_KEY` and `DASHBOARD_PASSWORD` (and `FINNHUB_API_KEY` for live prices).
 
 If a run fails with *"This API key is not scoped to a workspace"*, also add `ANTHROPIC_WORKSPACE_ID`:
 in the Claude Console open **Settings → Workspaces**, open your workspace (e.g. "Default"),
@@ -125,14 +121,24 @@ and to the Today page. Use **↕️ Reorder** to change the order. Favorites are
 open-source cryptocurrency-icons set, and news site icons from Google. If a logo is missing, a
 colored circle with the first letters is shown.
 
-**🚨 News alerts (Telegram):** with every dashboard update (every 15 minutes) the app checks the
+**🔔 Inbox and iPhone notifications:** the bell at the top opens your inbox: every alert, the
+morning digest and the evening recap of the last 30 days (a red number shows how many are new).
+To get them as real notifications, open the app from its Home Screen icon (iOS 16.4 or newer),
+go to **⚙️ Settings → 🔔 Turn on notifications** and allow them. About 3 minutes later a
+"✅ Notifications are on" test arrives. This uses the free Web Push standard: no Telegram, no
+extra account. Your phone's notification address is saved encrypted in `config/push/`; the
+signing key is calculated from `DASHBOARD_PASSWORD` (if you change the password, turn
+notifications on again). During your quiet time alerts wait silently in the inbox; only the
+morning digest still notifies. Code: `analyzer/inbox.py` and `site/sw.js`.
+
+**🚨 News alerts:** with every dashboard update (every 15 minutes) the app checks the
 news. When a headline from the last hour names one of your watchlist stocks or coins *and* contains
-a market-moving word (earnings, downgrade, lawsuit, merger, plunge, ...), the bot sends you an
-alert with the link, today's price move, a 1-3 sentence summary and the likely effect on the price
+a market-moving word (earnings, downgrade, lawsuit, merger, plunge, ...), you get an alert with
+the link, today's price move, a 1-3 sentence summary and the likely effect on the price
 (📈 up / 📉 down / ↔️ unclear), written by Claude from the headline and feed text. The summary costs about
-$0.005 per alert message (roughly $1-3 a month); turn it off with `ai_summary: false`. Set them up in the app under **⚙️ Settings**:
-turn alerts on or off and choose a quiet time (e.g. 23:00 to 07:00) when alerts come without sound or
-not at all. The app saves this to `config/alerts.yaml`. Defaults: `news_alerts` in `config/settings.yaml`; the word list is in `analyzer/news_alerts.py`.
+$0.005 per alert (roughly $1-3 a month); turn it off with `ai_summary: false`. Set them up in the app under **⚙️ Settings**:
+turn alerts on or off and choose a quiet time (e.g. 23:00 to 07:00). The app saves this to
+`config/alerts.yaml`. Defaults: `news_alerts` in `config/settings.yaml`; the word list is in `analyzer/news_alerts.py`.
 
 The **🕒 Markets** card on the Today tab shows when New York, Frankfurt, Vienna and London open
 and close, in Istanbul time, with a countdown. Public holidays are not included.
@@ -149,15 +155,20 @@ reloads itself once.
 - **💼 Portfolio tab → 🧪 Paper trading:** a fake-money account ($1,000 start, $100 per 🟢 BUY signal)
   that follows the app's signals, so you can judge them before risking real money. Rules and numbers:
   `paper_trading` in `config/settings.yaml`, code in `analyzer/paper.py`.
-- **🔔 Price alerts:** on a stock's page, add "goes above / below" targets; Telegram tells you when it
+- **💼 Portfolio tab → 💰 Dividends:** expected dividends from your holdings for the next 12
+  months: total and per month (bar chart), the next payments with their dates, yield per holding
+  and an after-tax estimate (27.5 % Austrian KESt, `dividends: tax_pct` in `config/settings.yaml`).
+  Uses the last 12 months of payments from Yahoo Finance (`analyzer/dividends.py`, fetched once a
+  day). Only stocks on your watchlist have dividend data. Each stock page also shows its dividend.
+- **🔔 Price alerts:** on a stock's page, add "goes above / below" targets; you get a notification when it
   happens. Under ⚙️ Settings you choose the big-move alert (default: stocks ±5 %, coins ±8 % in a day).
   Targets are saved encrypted with your dashboard password (`config/price_alerts.json`). Checked every
   15 minutes with Yahoo prices (up to 15 min delayed). Code: `analyzer/price_alerts.py`.
 - **📅 Earnings:** the Watchlist shows companies reporting in the next 14 days, each stock page shows
-  its next date, and Telegram reminds you at 18:00 the evening before. Code: `analyzer/earnings.py`.
-- **🌙 Evening recap:** right after the US close (00:15 Istanbul, Monday to Friday) a short Telegram
-  message, without sound, covers what moved and why, the paper account and upcoming earnings.
-  Written by Claude, about $0.10 a day. Workflow: `.github/workflows/evening-recap.yml`.
+  its next date, and you get a reminder at 18:00 the evening before. Code: `analyzer/earnings.py`.
+- **🌙 Evening recap:** right after the US close (00:15 Istanbul, Monday to Friday) a short message in
+  the inbox covers what moved and why, the paper account and upcoming earnings.
+  It notifies you unless it arrives in your quiet time. Written by Claude, about $0.10 a day. Workflow: `.github/workflows/evening-recap.yml`.
 
 **Install on iPhone:** open the address in Safari, tap **Share ⬆️ → Add to Home Screen**.
 It then opens full-screen like a normal app.
@@ -169,7 +180,7 @@ How it is built:
 
 | File | What it does |
 |---|---|
-| `analyzer/dashboard_data.py` | Collects prices (2 years, for charts), news, videos and reads today's pinned digest from Telegram. Writes `site/data/*.json`. |
+| `analyzer/dashboard_data.py` | Collects prices (2 years, for charts), news, videos and the inbox (`record/inbox/`). Writes `site/data/*.json`. |
 | `site/index.html` | The page skeleton: top bar, content area, bottom tabs, and the lines that make it installable. |
 | `site/styles.css` | All colors and layout. Light and dark mode follow your iPhone setting. |
 | `site/app.js` | Unlocks and loads the data and draws each tab. Read the comments at the top first. |
@@ -209,13 +220,10 @@ pip install -r requirements.txt
 # 3. Put your secrets in a .env file (it is ignored by git, so it never gets uploaded)
 cp .env.example .env             # then open .env and fill in the values
 
-# 4. Find your Telegram chat id (after sending your bot a message)
-python -m analyzer.telegram_setup
-
-# 5. Try it
+# 4. Try it
 python -m analyzer.digest --dry-run   # only collects data, free; look at output/data-*.json
 python -m analyzer.digest --no-send   # writes the digest and prints it (costs a few cents)
-python -m analyzer.digest             # the real thing: sends it to Telegram
+python -m analyzer.digest             # the real thing: saves it to record/inbox and notifies your phone
 
 # Run the tests
 python -m pytest

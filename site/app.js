@@ -175,6 +175,7 @@ async function load(typedPassword) {
     try {
       state.data = await getJSON("data/latest.json");
       if (checkForNewVersion()) return;
+      await loadInbox();
     } catch (e) {
       if (e.name === "OperationError") {  // decryption failed: wrong password
         lock.key = null; savePassword(null);
@@ -547,6 +548,7 @@ function pageDetail(file) {
     </div>
     ${sig ? `<div style="margin-top:12px">${signalCard(sig)}</div>` : ""}
     ${earningsLine(q)}
+    ${dividendLine(q)}
 
     <div class="controls">${seg("range", ["1M", "3M", "6M", "1Y", "2Y"], state.range)}${seg("type", ["line", "candles"], state.chartType)}</div>
     <div class="card" style="padding:10px 6px 6px">
@@ -882,18 +884,19 @@ function pageSettings() {
   const toggle = (id, on, label, hint) => `<label class="toggle-row"><span><b>${label}</b>${hint ? `<span class="hint">${hint}</span>` : ""}</span>
     <input type="checkbox" id="${id}" ${on ? "checked" : ""}><span class="switch" aria-hidden="true"></span></label>`;
   return `
-    <h2 class="section-title">🚨 News alerts on Telegram</h2>
+    ${pushCard()}
+    <h2 class="section-title">🚨 News alerts</h2>
     <form class="card settings" id="settings-form">
       ${toggle("al-on", a.enabled, "Send news alerts", "Important news about your stocks and coins, checked every 15 minutes.")}
       <div class="sep"></div>
-      ${toggle("al-quiet", a.quiet_enabled, "🌙 Quiet time", "Times are Istanbul time.")}
+      ${toggle("al-quiet", a.quiet_enabled, "🌙 Quiet time", "No notifications in this time (Istanbul time), except the morning digest.")}
       <div class="quiet-box" ${a.quiet_enabled ? "" : "hidden"}>
         <div class="time-row"><label>From <input type="time" id="al-from" value="${esc(t(a.quiet_from))}" step="300"></label>
           <label>To <input type="time" id="al-to" value="${esc(t(a.quiet_to))}" step="300"></label></div>
         <label class="k" for="al-mode">During quiet time</label>
         <select id="al-mode">
-          <option value="silent" ${a.quiet_mode !== "skip" ? "selected" : ""}>🔕 Send without sound</option>
-          <option value="skip" ${a.quiet_mode === "skip" ? "selected" : ""}>⛔ Don't send at all</option>
+          <option value="silent" ${a.quiet_mode !== "skip" ? "selected" : ""}>🔕 Inbox only, no notification</option>
+          <option value="skip" ${a.quiet_mode === "skip" ? "selected" : ""}>⛔ Skip them completely</option>
         </select>
       </div>
     </form>
@@ -934,7 +937,7 @@ async function saveSettings() {
   if (!token) { state.editError = "Please paste your GitHub key first."; render(); return; }
   state.saving = true; state.editError = ""; state.flash = ""; render();
   const yaml = `# News alert settings, saved from the app (⚙️ Settings) on ${new Date().toISOString().slice(0, 10)}.
-# Times are Istanbul time. quiet_mode: silent = no sound, skip = not sent.
+# Times are Istanbul time. quiet_mode: silent = inbox only, no notification; skip = not saved.
 enabled: ${cfg.enabled}
 quiet_enabled: ${cfg.quiet_enabled}
 quiet_from: "${cfg.quiet_from}"
@@ -1155,9 +1158,10 @@ function holdings() {
 function pagePortfolio() {
   const tab = state.pfTab || "mine";
   const seg = `<div class="seg wide" data-seg="pf">
-      <button data-v="mine" class="${tab === "mine" ? "on" : ""}">💼 My portfolio</button>
-      <button data-v="paper" class="${tab === "paper" ? "on" : ""}">🧪 Paper trading</button></div>`;
-  return seg + (tab === "paper" ? paperView() : myPortfolio());
+      <button data-v="mine" class="${tab === "mine" ? "on" : ""}">💼 Mine</button>
+      <button data-v="div" class="${tab === "div" ? "on" : ""}">💰 Dividends</button>
+      <button data-v="paper" class="${tab === "paper" ? "on" : ""}">🧪 Paper</button></div>`;
+  return seg + (tab === "paper" ? paperView() : tab === "div" ? dividendView() : myPortfolio());
 }
 
 function myPortfolio() {
@@ -1344,7 +1348,7 @@ function alertsCard(q) {
         return `<div class="row edit-row"><div class="who"><div class="t">${side === "above" ? "📈 Above" : "📉 Below"} ${fmtPrice(Number(a[side]), cur)}</div>
           <div class="s">${a.fired ? "✅ Triggered, delete it to set a new one" : "⏳ Waiting"}</div></div>
           <button class="remove" data-alert-del="${esc(q.symbol)}|${side}|${a[side]}" aria-label="Delete alert">✕</button></div>`;
-      }).join("")}</div>` : `<p class="hint">Get a Telegram message when ${esc(q.name)} crosses a price you choose.</p>`}
+      }).join("")}</div>` : `<p class="hint">Get a notification when ${esc(q.name)} crosses a price you choose.</p>`}
       <form id="alert-form" class="alert-form" data-symbol="${esc(q.symbol)}">
         <select id="al-side"><option value="above">📈 goes above</option><option value="below">📉 goes below</option></select>
         <input id="al-price" type="number" inputmode="decimal" step="any" min="0" required placeholder="${fmtPrice(q.last, "")}">
@@ -1424,6 +1428,361 @@ view.addEventListener("click", (e) => {
   }
 });
 
+// ---------------------------------------------------------------- inbox (🔔) and iPhone notifications
+// Every alert, the morning digest and the evening recap land in data/inbox.json
+// (encrypted like everything else). Notifications come through sw.js.
+
+const APP_URL = `${location.origin}${location.pathname.replace(/[^/]*$/, "")}`;
+const KIND = {
+  digest: ["☀️", "Morning digest"], recap: ["🌙", "Evening recap"], news: ["📰", "News alert"],
+  price: ["🎯", "Price alert"], move: ["🚀", "Big move"], earnings: ["📅", "Earnings"], system: ["ℹ️", "Notice"],
+};
+const inboxSeen = {
+  get() { try { return localStorage.getItem("inboxSeen") || ""; } catch (e) { return ""; } },
+  set(v) { try { localStorage.setItem("inboxSeen", v); } catch (e) { /* ignore */ } },
+};
+
+async function loadInbox() {
+  let items = [];
+  try { items = (await getJSON("data/inbox.json")).items || []; } catch (e) { items = state.inbox || []; }
+  // Messages that just arrived as a notification but aren't in the data files yet.
+  try {
+    const cache = await caches.open("mp-inbox");
+    for (const req of await cache.keys()) {
+      if (!req.url.includes("/pushed/")) continue;
+      const it = await (await cache.match(req)).json();
+      if (items.some((x) => x.id === it.id)) await cache.delete(req); else items.push(it);
+    }
+  } catch (e) { /* no cache support */ }
+  items.sort((a, b) => b.id.localeCompare(a.id));  // ids start with the date and time
+  state.inbox = items;
+  updateBell();
+}
+
+function unreadCount() {
+  const seen = inboxSeen.get();
+  return (state.inbox || []).filter((i) => i.id > seen).length;
+}
+
+function updateBell() {
+  const n = unreadCount();
+  const el = document.getElementById("bell-count");
+  if (el) { el.hidden = !n; el.textContent = n > 9 ? "9+" : String(n); }
+  try { n ? navigator.setAppBadge?.(n) : navigator.clearAppBadge?.(); } catch (e) { /* optional */ }
+}
+
+function markInboxRead() {
+  const newest = state.inbox?.[0]?.id;
+  if (newest && newest > inboxSeen.get()) inboxSeen.set(newest);
+  window.caches?.open("mp-inbox").then((c) => c.delete("badge")).catch(() => {});
+  updateBell();
+}
+
+// Only simple formatting from our own messages is shown: bold, italic, links, line breaks.
+function safeHtml(src) {
+  const tpl = document.createElement("template");
+  tpl.innerHTML = String(src || "").replace(/\n/g, "<br>");
+  const ok = new Set(["B", "I", "U", "EM", "STRONG", "A", "BR", "BLOCKQUOTE", "CODE"]);
+  const clean = (node) => {
+    for (const el of [...node.children]) {
+      clean(el);
+      if (["SCRIPT", "STYLE", "IFRAME", "OBJECT"].includes(el.tagName)) { el.remove(); continue; }
+      if (!ok.has(el.tagName)) { el.replaceWith(...el.childNodes); continue; }
+      const href = el.getAttribute("href") || "";
+      for (const at of [...el.attributes]) el.removeAttribute(at.name);
+      if (el.tagName !== "A") continue;
+      const h = href.startsWith(APP_URL) ? href.slice(APP_URL.length) : href;
+      if (/^#\//.test(h)) el.setAttribute("href", h);
+      else if (/^https?:\/\//i.test(h)) { el.setAttribute("href", h); el.target = "_blank"; el.rel = "noopener"; }
+    }
+  };
+  clean(tpl.content);
+  return tpl.innerHTML;
+}
+const plain = (html) => { const d = document.createElement("div"); d.innerHTML = safeHtml(html).replace(/<br>/g, " · "); return d.textContent; };
+const itemTime = (it) => new Date(it.ts).toLocaleString("en-GB", { timeZone: TZ, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+function pageInbox() {
+  const items = state.inbox || [];
+  const seen = state.inboxSeenBefore ?? inboxSeen.get();
+  const f = state.inboxFilter || "all";
+  const shown = items.filter((i) => f === "all" || (f === "reports" ? ["digest", "recap"].includes(i.kind) : !["digest", "recap"].includes(i.kind)));
+  const seg = `<div class="seg wide" data-seg="inbox">
+      <button data-v="all" class="${f === "all" ? "on" : ""}">All</button>
+      <button data-v="alerts" class="${f === "alerts" ? "on" : ""}">🚨 Alerts</button>
+      <button data-v="reports" class="${f === "reports" ? "on" : ""}">☀️ Reports</button></div>`;
+  const rowHtml = (i) => {
+    const [icon] = KIND[i.kind] || KIND.system;
+    return `<a class="row inbox-row ${i.id > seen ? "unread" : ""}" href="#/inbox/${encodeURIComponent(i.id)}">
+      ${i.symbol ? logo(i.symbol, i.symbol) : `<span class="kind-icon">${icon}</span>`}
+      <div class="who"><div class="t">${esc(i.title)}</div><div class="s">${esc(plain(i.html).slice(0, 140))}</div></div>
+      <div class="when">${timeAgo(new Date(i.ts).getTime() / 1000)}${i.id > seen ? `<span class="dot-new" aria-label="new"></span>` : ""}</div></a>`;
+  };
+  return `${pushNudge()}${seg}
+    ${shown.length ? `<div class="list">${shown.map(rowHtml).join("")}</div>`
+      : `<div class="card empty">Nothing here yet. Alerts, your morning digest and the evening recap will show up here.</div>`}
+    <p class="disclaimer">Messages are kept for 30 days.</p>`;
+}
+
+function pageInboxItem(id) {
+  const it = (state.inbox || []).find((i) => i.id === id);
+  if (!it) return `<a class="back" href="#/inbox">‹ Inbox</a>
+    <div class="card empty">This message is on its way. It shows up within a few minutes; tap ↻ to check.</div>`;
+  const [icon, label] = KIND[it.kind] || KIND.system;
+  const link = (l) => {
+    const h = l.url.startsWith(APP_URL) ? l.url.slice(APP_URL.length) : l.url;
+    return /^#\//.test(h) ? `<a class="pill-btn" href="${esc(h)}">${esc(l.text)}</a>`
+      : /^https?:\/\//i.test(h) ? `<a class="pill-btn" href="${esc(h)}" target="_blank" rel="noopener">${esc(l.text)}</a>` : "";
+  };
+  return `<a class="back" href="#/inbox">‹ Inbox</a>
+    <article class="card message">
+      <div class="msg-kind">${icon} ${esc(label)} · ${esc(itemTime(it))}</div>
+      <h2>${esc(it.title)}</h2>
+      <div class="msg-body">${safeHtml(it.html)}</div>
+      ${it.links?.length ? `<div class="btn-row">${it.links.map(link).join("")}</div>` : ""}
+    </article>`;
+}
+
+// ---- notifications on this phone
+const push = {
+  supported: () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window,
+  isIOS: () => /iPhone|iPad|iPod/.test(navigator.userAgent),
+  standalone: () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true,
+  saved() { try { return localStorage.getItem("pushSaved") || ""; } catch (e) { return ""; } },
+  setSaved(v) { try { v ? localStorage.setItem("pushSaved", v) : localStorage.removeItem("pushSaved"); } catch (e) { /* ignore */ } },
+};
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+  navigator.serviceWorker.addEventListener("message", (e) => {
+    if (e.data?.open) location.hash = e.data.open;
+    if (e.data?.pushed) loadInbox().then(() => { if ((location.hash || "").startsWith("#/inbox")) render(); });
+  });
+}
+
+async function pushStatus() {
+  if (!push.supported()) return push.isIOS() && !push.standalone() ? "install" : "unsupported";
+  if (Notification.permission === "denied") return "denied";
+  try {
+    const reg = await navigator.serviceWorker.getRegistration();
+    const sub = await reg?.pushManager.getSubscription();
+    if (sub && push.saved() === sub.endpoint && Notification.permission === "granted") return "on";
+  } catch (e) { /* treat as off */ }
+  return "off";
+}
+
+// A small hint on the inbox while notifications are off on this phone.
+function pushNudge() {
+  if (push.supported() && Notification.permission === "granted" && push.saved()) return "";
+  return `<a class="card notice nudge" href="#/settings">📲 Get these as notifications on your iPhone: turn them on in ⚙️ Settings.</a>`;
+}
+
+function pushCard() {
+  return `<h2 class="section-title">📲 Notifications on this phone</h2>
+    <div class="card settings" id="push-card"><p class="hint">Checking…</p></div>`;
+}
+
+async function fillPushCard() {
+  const el = document.getElementById("push-card");
+  if (!el) return;
+  const s = await pushStatus();
+  const phones = state.data.push?.phones || 0;
+  const busy = state.pushBusy ? "disabled" : "";
+  el.innerHTML = {
+    install: `<p><b>First add the app to your Home Screen.</b></p>
+      <p class="hint">iPhones only allow notifications for apps on the Home Screen (iOS 16.4 or newer):
+      in Safari tap Share <b>⬆︎</b> › <b>Add to Home Screen</b>, then open Market Pulse from that icon and come back here.</p>`,
+    unsupported: `<p class="hint">This browser can't show notifications. On iPhone, use the Market Pulse icon on your Home Screen.</p>`,
+    denied: `<p><b>Notifications are blocked.</b></p><p class="hint">Allow them in iPhone Settings › Notifications › Market Pulse, then come back here.</p>`,
+    on: `<p><b>✅ On for this phone</b></p>
+      <p class="hint">You get the morning digest, news, price and earnings alerts and the evening recap.
+      During your quiet time they wait silently in the 🔔 inbox. ${phones > 1 ? `${phones} phones have notifications on.` : ""}</p>
+      <div class="btn-row"><button class="pill-btn" data-act="push-off" ${busy}>Turn off</button></div>`,
+    off: `<p class="hint">Get the morning digest, alerts and the evening recap as real iPhone notifications.
+      Needs your GitHub key once (at the bottom of this page).</p>
+      <button class="primary" data-act="push-on" ${busy}>${state.pushBusy ? "Turning on…" : "🔔 Turn on notifications"}</button>`,
+  }[s];
+}
+
+const b64url = (s) => b64(s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (s.length % 4)) % 4));
+async function shortHash(text) {
+  const d = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+  return Array.from(d.slice(0, 6), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Deletes one file in the repository with your GitHub key.
+async function ghDelete(path, message, token) {
+  const url = `https://api.github.com/repos/${REPO.owner}/${REPO.name}/contents/${path}`;
+  const headers = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" };
+  const cur = await fetch(`${url}?ref=main`, { headers, cache: "no-store" });
+  if (cur.status === 404) return;
+  if (!cur.ok) throw new Error(`GitHub error ${cur.status}. Check your key.`);
+  const del = await fetch(url, { method: "DELETE", headers, body: JSON.stringify({ message, sha: (await cur.json()).sha, branch: "main" }) });
+  if (!del.ok) throw new Error(`Removing failed (error ${del.status}).`);
+}
+
+async function enablePush(permission) {
+  const typed = document.getElementById("gh-key")?.value.trim();
+  if (typed) ghKey.set(typed);
+  const token = ghKey.get();
+  state.editError = ""; state.flash = "";
+  try {
+    if ((await permission) !== "granted") throw new Error("Notifications weren't allowed. You can allow them in iPhone Settings › Notifications › Market Pulse.");
+    if (!token) throw new Error("Please paste your GitHub key at the bottom of this page first, then tap the button again.");
+    const key = state.data.push?.key;
+    if (!key) throw new Error("Notifications aren't ready yet. Try again after the next update (within 15 minutes).");
+    state.pushBusy = true; fillPushCard();
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    const wanted = b64url(key);
+    const has = sub?.options?.applicationServerKey ? new Uint8Array(sub.options.applicationServerKey) : null;
+    if (sub && has && has.join() !== wanted.join()) { await sub.unsubscribe(); sub = null; }
+    sub ||= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: wanted });
+    const json = sub.toJSON();
+    await ghSave(`config/push/${await shortHash(json.endpoint)}.json`,
+      await sealForRepo({ endpoint: json.endpoint, keys: json.keys, added: new Date().toISOString() }),
+      "Turn on notifications for a phone", token);
+    push.setSaved(json.endpoint);
+    state.flash = "✅ Notifications are on. A test notification arrives in about 3 minutes.";
+  } catch (e) {
+    state.editError = e.message || "That didn't work. Try again.";
+  } finally {
+    state.pushBusy = false; render();
+  }
+}
+
+async function disablePush() {
+  const token = ghKey.get();
+  state.editError = ""; state.flash = ""; state.pushBusy = true; fillPushCard();
+  try {
+    const reg = await navigator.serviceWorker.getRegistration();
+    const sub = await reg?.pushManager.getSubscription();
+    if (sub) {
+      if (token) await ghDelete(`config/push/${await shortHash(sub.endpoint)}.json`, "Turn off notifications for a phone", token);
+      await sub.unsubscribe();
+    }
+    push.setSaved("");
+    state.flash = "🔕 Notifications are off for this phone. Everything still lands in the 🔔 inbox.";
+  } catch (e) {
+    state.editError = e.message || "That didn't work. Try again.";
+  } finally { state.pushBusy = false; render(); }
+}
+
+view.addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  // Ask for permission right away: iPhones only allow it directly after a tap.
+  if (b.dataset.act === "push-on") enablePush(Notification.requestPermission());
+  if (b.dataset.act === "push-off") disablePush();
+  const seg = b.closest("[data-seg]");
+  if (seg?.dataset.seg === "inbox") { state.inboxFilter = b.dataset.v; render(); }
+});
+
+// ---------------------------------------------------------------- dividend planner
+// Uses your trades (on this phone) and the dividend history of your watchlist
+// stocks (data.dividends). The next 12 months repeat last year's payments at the
+// latest amount, unless the company already announced the next date.
+
+const addDays = (iso, n) => new Date(Date.parse(`${iso}T12:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
+const daysBetween = (a, b) => Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86400000);
+const FREQ = { 12: "monthly", 4: "quarterly", 3: "3× a year", 2: "twice a year", 1: "yearly" };
+
+function dividendPlan() {
+  const divs = state.data.dividends || {};
+  const today = todayISO(), end = addDays(today, 365);
+  const payments = [], perHolding = [], none = [], missing = [];
+  for (const r of holdings().open) {
+    if (isCrypto(r.symbol)) continue;
+    const d = divs[r.symbol];
+    if (!d) { (quoteFor(r.symbol) ? none : missing).push(r); continue; }
+    const hist = d.history || [];
+    const lastYear = hist.filter(([dt]) => dt > addDays(today, -365));
+    const latest = hist.length ? hist[hist.length - 1][1] : 0;
+    const lag = d.next_ex && d.next_pay ? Math.max(0, daysBetween(d.next_ex, d.next_pay)) : (/\.[A-Z]+$/.test(r.symbol) ? 3 : 14);
+    let plan = lastYear.map(([dt]) => ({ ex: addDays(dt, 365), amount: latest, est: true }));
+    // Already past the ex-date but not paid yet: you get this one too.
+    hist.filter(([dt]) => dt <= today && addDays(dt, lag) >= today).forEach(([dt, amt]) => plan.push({ ex: dt, amount: amt, est: !d.next_pay }));
+    if (d.next_ex && d.next_ex >= today) {
+      const known = { ex: d.next_ex, pay: d.next_pay, amount: latest, est: false };
+      const i = plan.findIndex((p) => p.est && Math.abs(daysBetween(p.ex, d.next_ex)) < 45);
+      if (i >= 0) plan[i] = known; else plan.push(known);
+    }
+    if (!plan.length || !latest) { none.push(r); continue; }
+    let year = 0;
+    for (const p of plan) {
+      const pay = p.pay && p.pay >= p.ex ? p.pay : addDays(p.ex, lag);
+      if (pay < today || pay > end) continue;
+      const total = p.amount * r.shares;
+      year += total;
+      payments.push({ r, ex: p.ex, pay, perShare: p.amount, total, est: p.est });
+    }
+    perHolding.push({ r, year, freq: FREQ[lastYear.length] || `${lastYear.length}× a year`,
+      yieldNow: r.last ? (latest * lastYear.length) / r.last * 100 : null,
+      yieldCost: r.avg ? (latest * lastYear.length) / r.avg * 100 : null });
+  }
+  payments.sort((a, b) => a.pay.localeCompare(b.pay));
+  return { payments, perHolding: perHolding.sort((a, b) => b.year - a.year), none, missing };
+}
+
+function dividendView() {
+  const tax = Number(state.data.dividend_cfg?.tax_pct ?? 27.5);
+  const { payments, perHolding, none, missing } = dividendPlan();
+  if (!holdings().open.length) return `<div class="card empty">Add your trades under 💼 My portfolio first. Then you see the dividends you can expect here.</div>`;
+  const byCur = {};
+  payments.forEach((p) => { (byCur[p.r.cur] ||= { cur: p.r.cur, total: 0, cost: 0 }).total += p.total; });
+  perHolding.forEach((h) => { if (byCur[h.r.cur]) byCur[h.r.cur].cost += h.r.cost; });
+  const curs = Object.values(byCur).sort((a, b) => b.total - a.total);
+  const main = curs[0];
+  const months = Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(`${todayISO().slice(0, 7)}-15T12:00:00Z`); d.setUTCMonth(d.getUTCMonth() + i);
+    return d.toISOString().slice(0, 7);
+  });
+  const perMonth = months.map((m) => payments.filter((p) => p.r.cur === main?.cur && p.pay.startsWith(m)).reduce((s, p) => s + p.total, 0));
+  const max = Math.max(...perMonth, 0.0001);
+  const totals = curs.map((c) => `<div class="card pf-total">
+      <div class="k">💰 Expected dividends · next 12 months${curs.length > 1 ? ` · ${esc(c.cur.trim())}` : ""}</div>
+      <div class="big num">${money(c.total, c.cur)}</div>
+      <div class="pf-sub num">≈ ${money(c.total / 12, c.cur)} a month on average</div>
+      <div class="pf-grid num">
+        <div><span class="k">After ${tax}% tax (estimate)</span><b>${money(c.total * (1 - tax / 100), c.cur)}</b></div>
+        <div><span class="k">Yield on what you paid</span><b>${c.cost ? `${(c.total / c.cost * 100).toFixed(2)}%` : "–"}</b></div>
+      </div></div>`).join("");
+  const chart = main ? `<h2 class="section-title">📊 Per month${curs.length > 1 ? ` (${esc(main.cur.trim())})` : ""}</h2>
+    <div class="card div-chart">${months.map((m, i) => `<div class="bar-col" title="${money(perMonth[i], main.cur)}">
+        <span class="bar-val num">${perMonth[i] ? money(perMonth[i], main.cur).replace(/\.\d\d$/, "") : ""}</span>
+        <span class="bar" style="height:${Math.round(perMonth[i] / max * 100)}%"></span>
+        <span class="bar-m">${new Date(`${m}-15T12:00:00Z`).toLocaleDateString("en-GB", { month: "short", timeZone: "UTC" })}</span></div>`).join("")}</div>` : "";
+  const payRow = (p) => `<a class="row" href="${p.r.q ? `#/s/${p.r.q.file}` : "#/portfolio"}">${logo(p.r.symbol, p.r.name)}
+      <div class="who"><div class="t">${esc(p.r.name)}</div>
+        <div class="s wrap">Paid ${p.est ? "≈ " : ""}${nice(p.pay)} · ex-date ${nice(p.ex, { day: "numeric", month: "short" })}</div></div>
+      <div class="price"><div class="p num">${money(p.total, p.r.cur)}</div>
+        <span class="hint num">${money(p.perShare, p.r.cur)} × ${+p.r.shares.toFixed(4)}${p.est ? " · est." : ""}</span></div></a>`;
+  const holdRow = (h) => `<div class="row">${logo(h.r.symbol, h.r.name, "sm")}
+      <div class="who"><div class="t">${esc(h.r.name)}</div>
+        <div class="s wrap">Pays ${h.freq}${h.yieldNow != null ? ` · yield ${h.yieldNow.toFixed(2)}%` : ""}${h.yieldCost != null ? ` · ${h.yieldCost.toFixed(2)}% on your cost` : ""}</div></div>
+      <div class="price"><div class="p num">${money(h.year, h.r.cur)}</div><span class="hint">a year</span></div></div>`;
+  return `${totals || `<div class="card empty">None of your holdings is expected to pay a dividend in the next 12 months.</div>`}
+    ${chart}
+    ${payments.length ? `<h2 class="section-title">📅 Next payments</h2><div class="list">${payments.slice(0, 12).map(payRow).join("")}</div>` : ""}
+    ${perHolding.length ? `<h2 class="section-title">📦 Per holding</h2><div class="list">${perHolding.map(holdRow).join("")}</div>` : ""}
+    ${none.length ? `<p class="hint rules">No dividends: ${none.map((r) => esc(r.name)).join(", ")}.</p>` : ""}
+    ${missing.length ? `<p class="hint rules">⚠️ Add ${missing.map((r) => esc(r.symbol)).join(", ")} to your watchlist to see ${missing.length > 1 ? "their" : "its"} dividends.</p>` : ""}
+    <p class="disclaimer">Estimates from the last 12 months of payments; companies can raise, cut or skip dividends.
+      Ex-date: you must own the shares before that day to get the payment. Amounts are before tax;
+      the after-tax figure uses ${tax}% (Austrian KESt). Change it in config/settings.yaml.</p>`;
+}
+
+function dividendLine(q) {
+  const d = (state.data.dividends || {})[q.symbol];
+  if (!d?.history?.length) return "";
+  const today = todayISO();
+  const lastYear = d.history.filter(([dt]) => dt > addDays(today, -365));
+  const latest = d.history[d.history.length - 1][1];
+  const yearly = latest * lastYear.length;
+  return `<div class="card info-line">💰 <b>Dividend: ${money(latest, q.currency || "")} ${FREQ[lastYear.length] || ""}</b>
+    ${q.last && yearly ? ` · yield ${(yearly / q.last * 100).toFixed(2)}%` : ""}
+    ${d.next_ex && d.next_ex >= today ? `<div class="hint">Next: own it before ${nice(d.next_ex)}${d.next_pay ? `, paid ${nice(d.next_pay)}` : ""}.</div>` : ""}</div>`;
+}
+
 // ---------------------------------------------------------------- router
 
 function render() {
@@ -1433,17 +1792,24 @@ function render() {
   const hash = location.hash || "#/";
   const [, page, arg] = hash.split("/");
   const tab = page === "s" ? "watchlist" : page || "today";
-  const titles = { today: "Today", watchlist: "Watchlist", news: "News", videos: "Videos", record: "Track record", settings: "Settings", portfolio: "Portfolio" };
+  const titles = { today: "Today", watchlist: "Watchlist", news: "News", videos: "Videos", record: "Track record", settings: "Settings", portfolio: "Portfolio", inbox: "Inbox" };
+  document.getElementById("bell-btn")?.classList.toggle("active", tab === "inbox");
   document.getElementById("page-title").textContent = page === "s" ? "" : titles[tab];
   document.querySelectorAll(".tabbar a").forEach((a) => a.classList.toggle("active", a.dataset.tab === tab));
 
-  if (page === "s") {
+  if (page === "inbox") {
+    if (state.inboxSeenBefore == null) state.inboxSeenBefore = inboxSeen.get();  // keep "new" dots during this visit
+    view.innerHTML = arg ? pageInboxItem(decodeURIComponent(arg)) : pageInbox();
+    markInboxRead();
+  } else if (page === "s") {
     view.innerHTML = pageDetail(decodeURIComponent(arg || ""));
     const q = state.data.quotes.find((x) => x.file === arg);
     if (q) drawChart(q);
   } else {
     view.innerHTML = { today: pageToday, watchlist: pageWatchlist, news: pageNews, videos: pageVideos, record: pageRecord, settings: pageSettings, portfolio: pagePortfolio }[tab]();
+    if (tab === "settings") fillPushCard();
   }
+  if (page !== "inbox") state.inboxSeenBefore = null;
   tickClocks();
 }
 

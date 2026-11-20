@@ -1,5 +1,9 @@
 # Run the digest on your home computer (with YouTube transcripts)
 
+> ⚠️ **Not ready yet (Nov 2026):** Telegram was replaced by the in-app inbox and iPhone
+> notifications. The home run needs a small update to save its digest to the inbox. Ask
+> Claude to update this guide before you set it up.
+
 **Why:** YouTube blocks cloud servers like GitHub from reading video transcripts, but it
 allows normal home internet. When your computer builds the digest, Claude can read what
 the YouTubers actually *say*, not just the video titles.

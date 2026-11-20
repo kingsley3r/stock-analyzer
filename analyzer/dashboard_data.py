@@ -4,6 +4,7 @@
 
 It writes:
   site/data/latest.json            quotes, today's digest + signals, news, videos
+  site/data/inbox.json             the 🔔 inbox: alerts, digests and recaps of the last 30 days
   site/data/history/<SYMBOL>.json  two years of daily candles per symbol (for charts)
 
 No AI is used here, so it is free to run often (GitHub runs it every 30 minutes)."""
@@ -17,7 +18,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import earnings, news, news_alerts, paper, price_alerts, prices, telegram, track_record, youtube
+from . import dividends, earnings, inbox, news, news_alerts, paper, price_alerts, prices, track_record, youtube
 from .lock import Locker
 from .config import ROOT, load_dotenv, load_yaml
 
@@ -41,41 +42,6 @@ def currency_for(symbol: str, group: str) -> str:
     if symbol.endswith(".L"):
         return "GBp "
     return "$"
-
-
-def entities_to_html(text: str, entities: list[dict]) -> str:
-    """Turns a Telegram message (plain text + formatting 'entities') back into HTML.
-
-    Telegram counts positions in UTF-16 units (emojis count as 2), so we work
-    on the UTF-16 encoded text to cut it at the right places."""
-    data = text.encode("utf-16-le")
-
-    def piece(start: int, end: int) -> str:
-        return data[start * 2:end * 2].decode("utf-16-le")
-
-    opens: dict[int, list[str]] = {}
-    closes: dict[int, list[str]] = {}
-    for e in sorted(entities or [], key=lambda e: (e["offset"], -e["length"])):
-        tag = {"bold": "b", "italic": "i", "underline": "u", "code": "code"}.get(e["type"])
-        start, end = e["offset"], e["offset"] + e["length"]
-        if e["type"] == "text_link":
-            opens.setdefault(start, []).append(f'<a href="{html.escape(e["url"])}" target="_blank" rel="noopener">')
-            closes.setdefault(end, []).insert(0, "</a>")
-        elif e["type"] == "url":
-            url = piece(start, end)
-            opens.setdefault(start, []).append(f'<a href="{html.escape(url)}" target="_blank" rel="noopener">')
-            closes.setdefault(end, []).insert(0, "</a>")
-        elif tag:
-            opens.setdefault(start, []).append(f"<{tag}>")
-            closes.setdefault(end, []).insert(0, f"</{tag}>")
-
-    out, n = [], len(data) // 2
-    boundaries = sorted({0, n, *opens, *closes})
-    for a, b in zip(boundaries[:-1], boundaries[1:]):
-        out += closes.get(a, []) + opens.get(a, [])
-        out.append(html.escape(piece(a, b)))
-    out += closes.get(n, [])
-    return "".join(out).replace("\n", "<br>")
 
 
 ACTIONS = {"BUY": "buy", "SELL": "sell", "DON'T BUY": "avoid", "DON’T BUY": "avoid",
@@ -110,24 +76,16 @@ def parse_signals(text: str) -> list[dict]:
     return signals
 
 
-def latest_digest() -> dict | None:
-    """Reads today's digest from the message pinned in your Telegram chat."""
-    token, chat_id = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
-    if not (token and chat_id):
-        log.info("No Telegram settings, so no digest on the dashboard")
-        return None
-    try:
-        chat = telegram._call(token, "getChat", chat_id=chat_id)
-    except Exception as e:
-        log.warning("Could not read the pinned digest: %s", e)
-        return None
-    msg = chat.get("pinned_message")
-    if not msg or "text" not in msg:
+def latest_digest(items: list[dict]) -> dict | None:
+    """The newest morning digest from the inbox (record/inbox/)."""
+    item = next((i for i in items if i.get("kind") == "digest"), None)
+    if not item:
+        log.info("No digest in the inbox yet")
         return None
     return {
-        "sent_at": datetime.fromtimestamp(msg["date"], timezone.utc).isoformat(),
-        "html": entities_to_html(msg["text"], msg.get("entities", [])),
-        "signals": parse_signals(msg["text"]),
+        "sent_at": datetime.fromisoformat(item["ts"]).astimezone(timezone.utc).isoformat(),
+        "html": item["html"].replace("\n", "<br>"),
+        "signals": parse_signals(inbox.strip_tags(item["html"])),
     }
 
 def match_symbols(signals: list[dict], quotes: list[dict]) -> None:
@@ -206,7 +164,7 @@ def build() -> None:
     yt_sources = {**sources, "youtube_transcripts": False}  # titles are enough here
     videos = youtube.collect_videos(yt_sources, max_per_channel=5, lookback_hours=72)
 
-    digest = latest_digest()
+    digest = latest_digest(inbox.load_items(password or None))
     if digest:
         match_symbols(digest["signals"], quotes)
 
@@ -221,12 +179,11 @@ def build() -> None:
 
     alert_cfg = news_alerts.load_settings()
     settings = load_yaml("settings.yaml")
-    tg_token, tg_chat = os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID")
 
     paper_result = paper.simulate(entries, candles_by_symbol, settings.get("paper_trading"))
     price_cfg = price_alerts.load_config(password or None)
 
-    # Telegram extras. A problem in one of them must never stop the dashboard.
+    # Alerts and extras. A problem in one of them must never stop the dashboard.
     def safely(what, fn, default=None):
         try:
             return fn()
@@ -234,10 +191,14 @@ def build() -> None:
             log.warning("%s failed: %s", what, exc)
             return default
 
-    safely("Price alerts", lambda: price_alerts.run(quotes, price_cfg, alert_cfg, record_dir / "price_alerts.json",
-                                                    tg_token, tg_chat))
+    safely("Welcome notification", lambda: inbox.welcome_new_phones(record_dir / "push_phones.json", password or None))
+    safely("Price alerts", lambda: price_alerts.run(quotes, price_cfg, alert_cfg, record_dir / "price_alerts.json"))
     upcoming = safely("Earnings", lambda: earnings.run(watchlist, quotes, settings.get("earnings") or {},
-                                                       record_dir / "earnings.json", FINNHUB_KEY, tg_token, tg_chat), [])
+                                                       record_dir / "earnings.json", FINNHUB_KEY), [])
+    safely("News alerts", lambda: news_alerts.run(articles, watchlist, quotes, {"news_alerts": alert_cfg},
+                                                  record_dir / "alerts.json"))
+    divs = safely("Dividends", lambda: dividends.run(watchlist, record_dir / "dividends.json"), {})
+    safely("Inbox cleanup", inbox.prune)
 
     latest = {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -253,23 +214,23 @@ def build() -> None:
                         | {"targets": price_alerts.status(price_cfg, record_dir / "price_alerts.json")},
         "paper": paper_result,
         "earnings": upcoming,
+        "dividends": divs,
+        "dividend_cfg": settings.get("dividends") or {},
+        # Notifications: the public key the app subscribes with, and how many phones have them on.
+        "push": {"key": inbox.public_key(password or None), "phones": len(safely("Phones", inbox.subscriptions, []))},
         "news": [a.to_dict() | {"ts": int(a.published)} for a in articles],
         "videos": [v.to_dict() | {"id": v.video_id} for v in videos],
     }
     write(SITE_DATA / "latest.json", latest)
 
-    # Breaking-news alerts to Telegram. A problem here must never stop the dashboard.
-    try:
-        news_alerts.run(articles, watchlist, quotes, {"news_alerts": alert_cfg},
-                        record_file.parent / "alerts.json",
-                        os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID"))
-    except Exception as exc:  # noqa: BLE001
-        log.warning("News alerts failed: %s", exc)
+    # The inbox (🔔 in the app): every alert, digest and recap of the last 30 days.
+    items = inbox.load_items(password or None)
+    write(SITE_DATA / "inbox.json", {"items": items})
     # lock.json tells the website whether (and how) the data is locked.
     (SITE_DATA / "lock.json").write_text(json.dumps(locker.header() if locker else {"v": 0}), encoding="utf-8")
     log.info("Encrypted with your password: %s", bool(locker))
-    log.info("Dashboard data written: %d quotes, %d articles, %d videos, digest=%s, signals=%s",
-             len(quotes), len(articles), len(videos), bool(digest),
+    log.info("Dashboard data written: %d quotes, %d articles, %d videos, %d inbox messages, digest=%s, signals=%s",
+             len(quotes), len(articles), len(videos), len(items), bool(digest),
              [f'{s["label"]} {s["symbol"]}' for s in digest["signals"]] if digest else None)
 
 
