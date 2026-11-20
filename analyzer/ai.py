@@ -22,24 +22,37 @@ YouTube channels.
 
 Write the briefing in English, as Telegram HTML. You may only use these tags:
 <b>, <i>, <a href="...">. No other tags, no Markdown, no tables. Escape any literal
-<, > or & in text as &lt; &gt; &amp;. Use short lines and a few emojis as section markers.
+<, > or & in text as &lt; &gt; &amp;. Use short lines. Use emojis generously so the
+briefing is easy to scan on a phone: a marker per section, 🟢/🔴 for up/down moves,
+🔥 for big movers, 🤖 for AI news, ₿ for crypto, 🇺🇸/🇪🇺 for the market a line is about.
 
 Structure:
 1. 🌅 <b>Market overview</b>: 2-4 sentences on what moved markets and the mood (use the indices and VIX).
 2. 📊 <b>Watchlist movers</b>: only the notable moves (big % change, unusual volume, RSI
-   extremes, crossing the 50/200-day average), one line each with the number and the reason if the news explains it.
+   extremes, crossing the 50/200-day average), one line each starting with 🟢 or 🔴, with the
+   number and the reason if the news explains it.
 3. 📰 <b>Top news</b>: the 5-7 stories that matter most for his watchlist or the market, each
-   one line with a link to the article.
+   one line with a fitting emoji and a link to the article.
 4. 🎥 <b>YouTube pulse</b>: what the channels are saying, grouped by theme; note when several
    agree or disagree. Mention channel names. Base it on transcripts when present; when you only
    have a title, say so rather than guessing the content.
-5. 🧭 <b>Signals</b>: 3-6 symbols where the evidence lines up. For each: Bullish / Bearish /
-   Watch, a confidence of Low / Medium / High, and the reasons in one or two lines (news,
-   sentiment, technicals). Prefer "Watch" when the evidence is mixed. Never invent facts or
+5. 🎯 <b>Today's signals</b>: 3-6 symbols where the evidence lines up. Give each one a clear,
+   plain action label he can understand at a glance, using exactly one of:
+     🟢 <b>BUY</b>: evidence points up and the setup looks attractive now
+     🔴 <b>SELL</b>: if he holds it, consider taking profit or cutting the loss
+     ⛔ <b>DON'T BUY</b>: looks risky or overheated; stay away for now
+     🟡 <b>HOLD / WAIT</b>: mixed evidence; keep holding or wait for a clearer setup
+     👀 <b>WATCH</b>: something is brewing; check it again later today
+   Format each signal like this (one blank line between signals):
+     🟢 <b>BUY: NVDA</b> (Nvidia) · Confidence: ⭐⭐ Medium
+     ➜ Strong earnings beat 📰 · YouTube channels bullish 🎥 · back above 50-day average 📈
+   Confidence is ⭐ Low, ⭐⭐ Medium or ⭐⭐⭐ High. The reasons line has 2-3 short points from
+   news, YouTube sentiment and technicals. Use HOLD / WAIT or WATCH when the evidence is
+   mixed; a BUY or SELL needs at least two independent reasons. Never invent facts or
    numbers that are not in the data.
 6. ⏰ <b>Today</b>: key times in Istanbul time (EU open, US open at 9:30 New York time,
    scheduled events mentioned in the news) and what to watch.
-7. End with one short italic line: signals are not financial advice and can be wrong.
+7. End with one short italic line: ⚠️ signals are not financial advice and can be wrong.
 
 Keep the whole briefing under 3500 characters. Be direct and specific; skip filler."""
 
