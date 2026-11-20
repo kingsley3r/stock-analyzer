@@ -365,9 +365,10 @@ function signalCard(s) {
   const href = q ? `#/s/${q.file}` : "#/";
   return `<a class="card signal" href="${href}">
     <div class="signal-head">
+      ${logo(s.symbol, s.name || q?.name)}
+      <div class="who"><div class="t">${esc(s.name || q?.name || s.symbol)}</div>
+        <div class="s">${esc(s.symbol)}${s.confidence ? ` · ${"⭐".repeat({ Low: 1, Medium: 2, High: 3 }[s.confidence] || 0)} ${esc(s.confidence)}` : ""}</div></div>
       <span class="badge ${s.action}">${SIGNAL_EMOJI[s.action] || ""} ${esc(s.label)}</span>
-      ${logo(s.symbol, s.name || q?.name, "sm")}<span class="sym">${esc(s.symbol)}</span><span class="name">${esc(s.name || q?.name || "")}</span>
-      ${s.confidence ? `<span class="conf">${"⭐".repeat({ Low: 1, Medium: 2, High: 3 }[s.confidence] || 0)} ${esc(s.confidence)}</span>` : ""}
     </div>
     ${q ? `<div class="num" style="margin-top:6px;font-size:14px">${livePrice(q)} &nbsp;${livePill(q)}</div>` : ""}
     ${s.reasons ? `<p class="why">${esc(s.reasons)}</p>` : ""}
@@ -379,8 +380,8 @@ function row(q, opts = {}) {
   return `<a class="row ${opts.star ? "has-star" : ""}" href="#/s/${q.file}">
     ${logo(q.symbol, q.name)}
     <div class="who">
-      <div class="t">${sig ? SIGNAL_EMOJI[sig.action] + " " : ""}${esc(q.name)}</div>
-      <div class="s">${esc(q.symbol)}</div>
+      <div class="t">${esc(q.name)}</div>
+      <div class="s">${esc(q.symbol)}${sig ? ` <span class="badge mini ${sig.action}">${SIGNAL_EMOJI[sig.action] || ""} ${esc(sig.label)}</span>` : ""}</div>
     </div>
     ${sparkline(q.spark, q.change_1m)}
     <div class="price">
