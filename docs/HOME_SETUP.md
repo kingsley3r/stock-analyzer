@@ -15,6 +15,55 @@ So you always get exactly one digest per day.
 
 ---
 
+## Raspberry Pi (best option: always on, uses very little power)
+
+Works on a **Raspberry Pi 3, 4 or 5** with **Raspberry Pi OS (64-bit)**. A Pi Zero or Pi 1/2 is
+too slow for the data libraries.
+
+### 1. Open a terminal on the Pi
+Either use a screen and keyboard on the Pi, or connect from your computer with
+`ssh <user>@<pi-name>.local` (e.g. `ssh pi@raspberrypi.local`).
+
+### 2. Install the tools and set the time zone (one time)
+```bash
+sudo apt update && sudo apt full-upgrade -y
+sudo apt install -y git python3-venv python3-pip
+sudo timedatectl set-timezone Europe/Istanbul
+python3 --version          # should say 3.11 or newer
+```
+
+### 3. Get the app
+```bash
+cd ~
+git clone https://github.com/kingsley3r/stock-analyzer.git
+cd stock-analyzer
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt     # takes a few minutes on a Pi
+cp .env.example .env
+nano .env
+```
+In the nano editor, fill in the same three values as the GitHub secrets.
+Save with **Ctrl+O**, Enter, then exit with **Ctrl+X**.
+
+Test it (sends a digest, costs about $0.20):
+```bash
+python -m analyzer.digest
+```
+In the log you should see `Collected ... videos (... with transcript)` with a number above 0.
+
+### 4. Schedule it for every morning
+```bash
+chmod +x ~/stock-analyzer/run_digest.sh
+(crontab -l 2>/dev/null; echo "45 5 * * * $HOME/stock-analyzer/run_digest.sh") | crontab -
+crontab -l                 # shows the schedule, to check
+```
+That's it. The Pi runs it every day at 05:45 Istanbul time. Leave the Pi plugged in and
+connected to the internet. The log is in `~/stock-analyzer/output/home-run.log`
+(`tail -50 ~/stock-analyzer/output/home-run.log` shows the last lines).
+
+---
+
 ## Windows
 
 ### 1. Install the tools (one time)
