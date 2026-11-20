@@ -173,6 +173,7 @@ async function load(typedPassword) {
     }
     try {
       state.data = await getJSON("data/latest.json");
+      if (checkForNewVersion()) return;
     } catch (e) {
       if (e.name === "OperationError") {  // decryption failed: wrong password
         lock.key = null; savePassword(null);
@@ -830,10 +831,7 @@ function pageEditWatchlist() {
     ${state.editError ? `<p class="lock-error" style="margin:10px 4px 0">${esc(state.editError)}</p>` : ""}
     ${block("us")}${block("europe")}${block("crypto")}${block("index")}
     <div class="card save-card">
-      ${ghKey.get() ? `<p class="hint">🔑 GitHub key saved on this device · <button type="button" class="link" data-act="forget-key">remove</button></p>`
-        : `<label class="k" for="gh-key">🔑 Your GitHub key (needed once, stays on this phone)</label>
-           <input id="gh-key" type="password" placeholder="github_pat_…" autocomplete="off">
-           <p class="hint">How to create it: see “Edit the watchlist in the app” in the README.</p>`}
+      ${keyField()}
       <button class="primary" data-act="save" ${state.saving ? "disabled" : ""}>${state.saving ? "Saving…" : "💾 Save changes"}</button>
     </div>`;
 }
@@ -859,25 +857,103 @@ ${sect("stocks", ["us", "europe"])}
 ${sect("crypto", ["crypto"])}`;
 }
 
+// Saves one file in the repository with your GitHub key (creates it if it doesn't exist yet).
+async function ghSave(path, text, message, token) {
+  const url = `https://api.github.com/repos/${REPO.owner}/${REPO.name}/contents/${path}`;
+  const headers = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" };
+  const cur = await fetch(`${url}?ref=main`, { headers, cache: "no-store" });
+  if (cur.status === 401) throw new Error("GitHub didn't accept the key. Check it was copied completely.");
+  if (!cur.ok && cur.status !== 404) throw new Error(`The key can't read the repository (error ${cur.status}). Check it has access to ${REPO.name}.`);
+  const sha = cur.ok ? (await cur.json()).sha : undefined;
+  const bytes = new TextEncoder().encode(text);
+  const content = btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join(""));
+  const put = await fetch(url, { method: "PUT", headers, body: JSON.stringify({ message, content, sha, branch: "main" }) });
+  if (put.status === 403 || put.status === 404) throw new Error("The key can read but not save. Give it “Contents: Read and write” permission.");
+  if (!put.ok) throw new Error(`Saving failed (error ${put.status}). Try again in a minute.`);
+}
+
+function keyField() {
+  return ghKey.get() ? `<p class="hint">🔑 GitHub key saved on this device · <button type="button" class="link" data-act="forget-key">remove</button></p>`
+    : `<label class="k" for="gh-key">🔑 Your GitHub key (needed once, stays on this phone)</label>
+       <input id="gh-key" type="password" placeholder="github_pat_…" autocomplete="off">
+       <p class="hint">How to create it: see “Edit the watchlist in the app” in the README.</p>`;
+}
+
+// ---------------------------------------------------------------- settings page
+function pageSettings() {
+  const a = { enabled: true, quiet_enabled: true, quiet_from: "23:00", quiet_to: "07:00", quiet_mode: "silent", ...(state.data.alerts || {}) };
+  const t = (v) => typeof v === "number" ? `${String(Math.floor(v / 60) % 24).padStart(2, "0")}:${String(v % 60).padStart(2, "0")}` : String(v).padStart(5, "0");
+  const toggle = (id, on, label, hint) => `<label class="toggle-row"><span><b>${label}</b>${hint ? `<span class="hint">${hint}</span>` : ""}</span>
+    <input type="checkbox" id="${id}" ${on ? "checked" : ""}><span class="switch" aria-hidden="true"></span></label>`;
+  return `
+    <h2 class="section-title">🚨 News alerts on Telegram</h2>
+    <form class="card settings" id="settings-form">
+      ${toggle("al-on", a.enabled, "Send news alerts", "Important news about your stocks and coins, checked every 15 minutes.")}
+      <div class="sep"></div>
+      ${toggle("al-quiet", a.quiet_enabled, "🌙 Quiet time", "Times are Istanbul time.")}
+      <div class="quiet-box" ${a.quiet_enabled ? "" : "hidden"}>
+        <div class="time-row"><label>From <input type="time" id="al-from" value="${esc(t(a.quiet_from))}" step="300"></label>
+          <label>To <input type="time" id="al-to" value="${esc(t(a.quiet_to))}" step="300"></label></div>
+        <label class="k" for="al-mode">During quiet time</label>
+        <select id="al-mode">
+          <option value="silent" ${a.quiet_mode !== "skip" ? "selected" : ""}>🔕 Send without sound</option>
+          <option value="skip" ${a.quiet_mode === "skip" ? "selected" : ""}>⛔ Don't send at all</option>
+        </select>
+      </div>
+    </form>
+    ${state.editError ? `<p class="lock-error" style="margin:10px 4px 0">${esc(state.editError)}</p>` : ""}
+    ${state.flash ? `<div class="card notice">${esc(state.flash)}</div>` : ""}
+    <div class="card save-card">${keyField()}
+      <button class="primary" data-act="save-settings" ${state.saving ? "disabled" : ""}>${state.saving ? "Saving…" : "💾 Save settings"}</button>
+    </div>
+    <p class="disclaimer">Changes apply from the next check, within about 15 minutes.</p>`;
+}
+
+async function saveSettings() {
+  const typed = document.getElementById("gh-key")?.value.trim();
+  if (typed) ghKey.set(typed);
+  const token = ghKey.get();
+  const cfg = {
+    enabled: document.getElementById("al-on").checked,
+    quiet_enabled: document.getElementById("al-quiet").checked,
+    quiet_from: document.getElementById("al-from").value || "23:00",
+    quiet_to: document.getElementById("al-to").value || "07:00",
+    quiet_mode: document.getElementById("al-mode").value,
+  };
+  state.data.alerts = { ...(state.data.alerts || {}), ...cfg };  // keep the form as typed
+  if (!token) { state.editError = "Please paste your GitHub key first."; render(); return; }
+  state.saving = true; state.editError = ""; state.flash = ""; render();
+  const yaml = `# News alert settings, saved from the app (⚙️ Settings) on ${new Date().toISOString().slice(0, 10)}.
+# Times are Istanbul time. quiet_mode: silent = no sound, skip = not sent.
+enabled: ${cfg.enabled}
+quiet_enabled: ${cfg.quiet_enabled}
+quiet_from: "${cfg.quiet_from}"
+quiet_to: "${cfg.quiet_to}"
+quiet_mode: ${cfg.quiet_mode}
+`;
+  try {
+    await ghSave("config/alerts.yaml", yaml, "Update alert settings from the app", token);
+    state.flash = "✅ Saved. Alerts follow the new settings within about 15 minutes.";
+  } catch (e) {
+    state.editError = e.message || "Saving failed. Check your internet connection.";
+  } finally {
+    state.saving = false;
+    render();
+  }
+}
+
+view.addEventListener("change", (e) => {
+  if (e.target.id === "al-quiet") document.querySelector(".quiet-box").hidden = !e.target.checked;
+});
+
 async function saveWatchlist() {
   const typed = document.getElementById("gh-key")?.value.trim();
   if (typed) ghKey.set(typed);
   const token = ghKey.get();
   if (!token) { state.editError = "Please paste your GitHub key first."; render(); return; }
   state.saving = true; state.editError = ""; render();
-  const url = `https://api.github.com/repos/${REPO.owner}/${REPO.name}/contents/config/watchlist.yaml`;
-  const headers = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" };
   try {
-    const cur = await fetch(`${url}?ref=main`, { headers, cache: "no-store" });
-    if (cur.status === 401) throw new Error("GitHub didn't accept the key. Check it was copied completely.");
-    if (!cur.ok) throw new Error(`The key can't read the repository (error ${cur.status}). Check it has access to ${REPO.name}.`);
-    const { sha } = await cur.json();
-    const bytes = new TextEncoder().encode(toYaml(state.draft));
-    const content = btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join(""));
-    const put = await fetch(url, { method: "PUT", headers, body: JSON.stringify({
-      message: "Update watchlist from the app", content, sha, branch: "main" }) });
-    if (put.status === 403 || put.status === 404) throw new Error("The key can read but not save. Give it “Contents: Read and write” permission.");
-    if (!put.ok) throw new Error(`Saving failed (error ${put.status}). Try again in a minute.`);
+    await ghSave("config/watchlist.yaml", toYaml(state.draft), "Update watchlist from the app", token);
     // Show the edited list right away; prices for new symbols come with the next update.
     state.data.watchlist = {
       indices: state.draft.filter((i) => i.market === "index"),
@@ -1013,7 +1089,7 @@ function render() {
   const hash = location.hash || "#/";
   const [, page, arg] = hash.split("/");
   const tab = page === "s" ? "watchlist" : page || "today";
-  const titles = { today: "Today", watchlist: "Watchlist", news: "News", videos: "Videos", record: "Track record" };
+  const titles = { today: "Today", watchlist: "Watchlist", news: "News", videos: "Videos", record: "Track record", settings: "Settings" };
   document.getElementById("page-title").textContent = page === "s" ? "" : titles[tab];
   document.querySelectorAll(".tabbar a").forEach((a) => a.classList.toggle("active", a.dataset.tab === tab));
 
@@ -1022,7 +1098,7 @@ function render() {
     const q = state.data.quotes.find((x) => x.file === arg);
     if (q) drawChart(q);
   } else {
-    view.innerHTML = { today: pageToday, watchlist: pageWatchlist, news: pageNews, videos: pageVideos, record: pageRecord }[tab]();
+    view.innerHTML = { today: pageToday, watchlist: pageWatchlist, news: pageNews, videos: pageVideos, record: pageRecord, settings: pageSettings }[tab]();
   }
   tickClocks();
 }
@@ -1033,6 +1109,7 @@ view.addEventListener("click", (e) => {
   if (!b) return;
   if (b.dataset.star) { e.preventDefault(); e.stopPropagation(); favs.toggle(b.dataset.star); render(); return; }
   if (b.dataset.move) { favs.move(b.dataset.move, Number(b.dataset.step)); render(); return; }
+  if (b.dataset.act === "save-settings") { saveSettings(); return; }
   if (b.dataset.act === "reorder") { state.reorder = true; render(); return; }
   if (b.dataset.act === "reorder-done") { state.reorder = false; render(); return; }
   if (b.dataset.filter) { state.newsFilter = b.dataset.filter; render(); }
@@ -1069,6 +1146,21 @@ document.addEventListener("visibilitychange", () => {
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
 
 load();
+
+// ---------------------------------------------------------------- app updates
+// Each data file says which app version built it. If your phone still runs an
+// older (cached) version, fetch the new page and reload once.
+function checkForNewVersion() {
+  const mine = document.querySelector('meta[name="app-version"]')?.content;
+  const latest = state.data?.app_version;
+  if (!latest || !mine || mine === "dev" || mine === latest) return false;
+  try {
+    if (sessionStorage.getItem("reloadedFor") === latest) return false;  // never loop
+    sessionStorage.setItem("reloadedFor", latest);
+  } catch (e) { return false; }
+  fetch(`./?v=${latest}`, { cache: "reload" }).catch(() => {}).finally(() => location.reload());
+  return true;
+}
 
 // ---------------------------------------------------------------- opening animation
 // The splash in index.html animates by itself (CSS); here we just remove it afterwards.

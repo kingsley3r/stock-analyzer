@@ -16,4 +16,8 @@ news_alerts:
   enabled: true
   max_per_update: 3        # at most this many headlines per message
   window_minutes: 60       # only news from the last hour
-  quiet_hours: [23, 7]     # Istanbul time: alerts still arrive, but without sound
+  # Quiet time (Istanbul). You can change these in the app: ⚙️ Settings (saved to config/alerts.yaml).
+  quiet_enabled: true
+  quiet_from: "23:00"
+  quiet_to: "07:00"
+  quiet_mode: silent       # silent = arrive without sound, skip = not sent at all

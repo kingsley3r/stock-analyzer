@@ -4,7 +4,8 @@ of your watchlist stocks or coins comes in.
 Runs as part of every dashboard update (every 15 minutes on GitHub). It uses no
 AI, so it costs nothing: a headline counts as "important" when it names one of
 your symbols AND contains a market-moving word (earnings, downgrade, lawsuit,
-merger, plunge, ...). Tune the words in IMPORTANT below or in config/settings.yaml.
+merger, plunge, ...). Tune the words in IMPORTANT below. On/off and quiet time are set in the
+app (⚙️ Settings, saved to config/alerts.yaml) or in config/settings.yaml.
 
 Which headlines were already sent is remembered in record/alerts.json (only
 short fingerprints of the links, nothing readable).
@@ -111,10 +112,40 @@ def format_alert(article: Article, item: dict, quote: dict | None, now: float) -
             f"<i>{html.escape(source)} · {ago}</i>")
 
 
-def quiet_now(settings: dict, tz: str) -> bool:
-    start, end = settings.get("quiet_hours", [23, 7])
-    hour = datetime.now(ZoneInfo(tz)).hour
-    return hour >= start or hour < end if start > end else start <= hour < end
+def load_settings() -> dict:
+    """Alert settings: defaults from config/settings.yaml, overridden by
+    config/alerts.yaml, which the app's ⚙️ Settings page writes."""
+    from .config import CONFIG_DIR, load_yaml
+    cfg = {"enabled": True, "quiet_enabled": True, "quiet_from": "23:00", "quiet_to": "07:00",
+           "quiet_mode": "silent", "max_per_update": 3, "window_minutes": 60}
+    base = load_yaml("settings.yaml").get("news_alerts") or {}
+    if "quiet_hours" in base:  # older format: [23, 7]
+        start, end = base.pop("quiet_hours")
+        base.setdefault("quiet_from", f"{int(start):02d}:00")
+        base.setdefault("quiet_to", f"{int(end):02d}:00")
+    cfg.update(base)
+    if (CONFIG_DIR / "alerts.yaml").exists():
+        cfg.update(load_yaml("alerts.yaml") or {})
+    return cfg
+
+
+def _minutes(hhmm) -> int:
+    if isinstance(hhmm, int):  # YAML reads an unquoted 23:00 as 1380 minutes
+        return hhmm % 1440
+    h, m = str(hhmm).split(":")
+    return int(h) * 60 + int(m)
+
+
+def quiet_now(cfg: dict, tz: str, now: datetime | None = None) -> bool:
+    """True inside your quiet time (it may run over midnight, e.g. 23:00 to 07:00)."""
+    if not cfg.get("quiet_enabled", True):
+        return False
+    start, end = _minutes(cfg.get("quiet_from", "23:00")), _minutes(cfg.get("quiet_to", "07:00"))
+    now = now or datetime.now(ZoneInfo(tz))
+    t = now.hour * 60 + now.minute
+    if start == end:
+        return False
+    return t >= start or t < end if start > end else start <= t < end
 
 
 def run(articles: list[Article], watchlist: dict, quotes: list[dict], settings: dict,
@@ -122,6 +153,10 @@ def run(articles: list[Article], watchlist: dict, quotes: list[dict], settings: 
     """Sends new alerts and returns how many were sent."""
     cfg = settings.get("news_alerts") or {}
     if cfg.get("enabled", True) is False:
+        return 0
+    silent = quiet_now(cfg, tz)
+    if silent and cfg.get("quiet_mode") == "skip":
+        log.info("News alerts: quiet time, not sending")
         return 0
     if not token or not chat_id:
         log.info("News alerts: no Telegram secrets, skipping")
@@ -136,7 +171,6 @@ def run(articles: list[Article], watchlist: dict, quotes: list[dict], settings: 
         return 0
     by_symbol = {q["symbol"]: q for q in quotes}
     text = "\n\n".join(format_alert(a, it, by_symbol.get(it["symbol"]), now) for a, it, _ in picked)
-    silent = quiet_now(cfg, tz)
     telegram._call(token, "sendMessage", chat_id=chat_id, text=text, parse_mode="HTML",
                    disable_notification=silent, link_preview_options={"is_disabled": True})
     for a, _, _ in picked:

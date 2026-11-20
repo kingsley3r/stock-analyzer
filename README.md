@@ -128,11 +128,15 @@ colored circle with the first letters is shown.
 **🚨 News alerts (Telegram):** with every dashboard update (every 15 minutes) the app checks the
 news. When a headline from the last hour names one of your watchlist stocks or coins *and* contains
 a market-moving word (earnings, downgrade, lawsuit, merger, plunge, ...), the bot sends you an
-alert with the link and today's price move. Free, no AI. Between 23:00 and 07:00 alerts arrive
-silently. Settings: `news_alerts` in `config/settings.yaml`; the word list is in `analyzer/news_alerts.py`.
+alert with the link and today's price move. Free, no AI. Set them up in the app under **⚙️ Settings**:
+turn alerts on or off and choose a quiet time (e.g. 23:00 to 07:00) when alerts come without sound or
+not at all. The app saves this to `config/alerts.yaml`. Defaults: `news_alerts` in `config/settings.yaml`; the word list is in `analyzer/news_alerts.py`.
 
 The **🕒 Markets** card on the Today tab shows when New York, Frankfurt, Vienna and London open
 and close, in Istanbul time, with a countdown. Public holidays are not included.
+
+**Updates:** when a new app version is published, the app notices it on the next data load and
+reloads itself once.
 
 **Install on iPhone:** open the address in Safari, tap **Share ⬆️ → Add to Home Screen**.
 It then opens full-screen like a normal app.

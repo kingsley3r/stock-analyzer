@@ -45,6 +45,10 @@ jobs:
           DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
         run: |
+          # Stamp the app version into the page, so phones load new versions right away.
+          export APP_VERSION="${GITHUB_SHA::7}"
+          sed -i "s/?v=dev/?v=${APP_VERSION}/g; s/name=\"app-version\" content=\"dev\"/name=\"app-version\" content=\"${APP_VERSION}\"/" site/index.html
+          grep -q "content=\"${APP_VERSION}\"" site/index.html
           # Never publish unlocked data: stop if the password secret is missing.
           if [ -z "$DASHBOARD_PASSWORD" ]; then
             echo "::error::Add a repository secret named DASHBOARD_PASSWORD (Settings > Secrets and variables > Actions). The dashboard is only published encrypted."

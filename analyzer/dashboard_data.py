@@ -216,14 +216,18 @@ def build() -> None:
         track_record.save_log(record_file, entries, password or None)
     record = track_record.evaluate(entries, candles_by_symbol)
 
+    alert_cfg = news_alerts.load_settings()
+
     latest = {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "app_version": os.environ.get("APP_VERSION") or None,  # lets phones notice a new app version
         "quotes": quotes,
         "digest": digest,
         "track_record": record,
         "watchlist": watchlist,   # the app's watchlist editor starts from this
         # The key is only readable after unlocking with your password.
         "live": {"finnhub_key": FINNHUB_KEY or None},
+        "alerts": alert_cfg,      # shown on the app's Settings page
         "news": [a.to_dict() | {"ts": int(a.published)} for a in articles],
         "videos": [v.to_dict() | {"id": v.video_id} for v in videos],
     }
@@ -231,7 +235,7 @@ def build() -> None:
 
     # Breaking-news alerts to Telegram. A problem here must never stop the dashboard.
     try:
-        news_alerts.run(articles, watchlist, quotes, load_yaml("settings.yaml"),
+        news_alerts.run(articles, watchlist, quotes, {"news_alerts": alert_cfg},
                         record_file.parent / "alerts.json",
                         os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID"))
     except Exception as exc:  # noqa: BLE001

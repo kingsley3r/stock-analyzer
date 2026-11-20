@@ -53,3 +53,29 @@ def test_disabled_or_no_secrets(tmp_path):
     a = art("Nvidia beats earnings estimates")
     assert news_alerts.run([a], WATCH, [], {"news_alerts": {"enabled": False}}, tmp_path / "s.json", "t", "c") == 0
     assert news_alerts.run([a], WATCH, [], {}, tmp_path / "s.json", None, None) == 0
+
+
+def test_quiet_time():
+    from datetime import datetime
+    cfg = {"quiet_enabled": True, "quiet_from": "22:30", "quiet_to": "06:15"}
+    at = lambda h, m: datetime(2026, 11, 20, h, m)
+    assert news_alerts.quiet_now(cfg, "Europe/Istanbul", at(23, 0))
+    assert news_alerts.quiet_now(cfg, "Europe/Istanbul", at(6, 0))
+    assert not news_alerts.quiet_now(cfg, "Europe/Istanbul", at(6, 15))
+    assert not news_alerts.quiet_now(cfg, "Europe/Istanbul", at(22, 29))
+    day = {"quiet_enabled": True, "quiet_from": "12:00", "quiet_to": "13:00"}
+    assert news_alerts.quiet_now(day, "Europe/Istanbul", at(12, 30))
+    assert not news_alerts.quiet_now(day, "Europe/Istanbul", at(13, 30))
+    assert not news_alerts.quiet_now({**cfg, "quiet_enabled": False}, "Europe/Istanbul", at(23, 0))
+
+
+def test_skip_mode_sends_nothing_in_quiet_time(tmp_path, monkeypatch):
+    monkeypatch.setattr(news_alerts, "quiet_now", lambda cfg, tz: True)
+    monkeypatch.setattr(news_alerts.telegram, "_call", lambda *a, **k: (_ for _ in ()).throw(AssertionError("sent")))
+    a = art("Nvidia beats earnings estimates")
+    assert news_alerts.run([a], WATCH, [], {"news_alerts": {"quiet_mode": "skip"}}, tmp_path / "s.json", "t", "c") == 0
+
+
+def test_load_settings_defaults():
+    cfg = news_alerts.load_settings()
+    assert cfg["quiet_from"] == "23:00" and cfg["quiet_to"] == "07:00" and cfg["enabled"] is True
