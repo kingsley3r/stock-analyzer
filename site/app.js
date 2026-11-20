@@ -321,7 +321,15 @@ function pageToday() {
   const signals = digest?.signals || [];
 
   return `
-    <h2 class="section-title first">🎯 Today's signals${digest ? ` <span class="sub">${istanbulTime(digest.sent_at)}</span>` : ""}</h2>
+    <div class="chips">${indices.map((q) => `
+      <a class="chip" href="#/s/${q.file}">
+        <div class="label">${INDEX_FLAG[q.symbol] || "📊"} ${esc(q.name)}</div>
+        <div class="value num">${livePrice(q, false)}</div>
+        <div class="num" style="font-size:13px;font-weight:600">${liveChange(q)}</div>
+      </a>`).join("")}
+    </div>
+
+    <h2 class="section-title">🎯 Today's signals${digest ? ` <span class="sub">${istanbulTime(digest.sent_at)}</span>` : ""}</h2>
     ${signals.length ? signals.map(signalCard).join("") :
       `<div class="card empty">No signals yet today. They appear after the morning digest.</div>`}
 
@@ -330,14 +338,6 @@ function pageToday() {
 
     ${recordTeaser()}
 
-    <h2 class="section-title">📊 Indices</h2>
-    <div class="chips">${indices.map((q) => `
-      <a class="chip" href="#/s/${q.file}">
-        <div class="label">${INDEX_FLAG[q.symbol] || "📊"} ${esc(q.name)}</div>
-        <div class="value num">${livePrice(q, false)}</div>
-        <div class="num" style="font-size:13px;font-weight:600">${liveChange(q)}</div>
-      </a>`).join("")}
-    </div>
     ${installHint()}
     <p class="disclaimer">⚠️ Signals are AI analysis, not financial advice, and can be wrong.</p>`;
 }
