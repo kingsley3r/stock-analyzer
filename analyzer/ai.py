@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 
 import anthropic
 
@@ -44,7 +45,11 @@ Keep the whole briefing under 3500 characters. Be direct and specific; skip fill
 
 
 def write_digest(payload: dict, model: str, effort: str = "medium") -> str:
-    client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from the environment
+    # The client reads ANTHROPIC_API_KEY from the environment. Some API keys belong to
+    # the whole organization rather than one workspace; those also need the workspace id.
+    workspace_id = os.environ.get("ANTHROPIC_WORKSPACE_ID", "").strip()
+    headers = {"anthropic-workspace-id": workspace_id} if workspace_id else None
+    client = anthropic.Anthropic(default_headers=headers)
     user_content = "Here is today's data:\n\n" + json.dumps(payload, ensure_ascii=False, indent=1)
     log.info("Asking %s for the digest (%d characters of input)", model, len(user_content))
 

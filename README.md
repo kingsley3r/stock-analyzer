@@ -65,6 +65,10 @@ To pay less, set `model: claude-haiku-5-5` in `config/settings.yaml`.
 In your repository on github.com: **Settings → Secrets and variables → Actions → New repository secret**.
 Add the three secrets: `ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`.
 
+If a run fails with *"This API key is not scoped to a workspace"*, also add `ANTHROPIC_WORKSPACE_ID`:
+in the Claude Console open **Settings → Workspaces**, open your workspace (e.g. "Default"),
+and copy its id (starts with `wrkspc_`).
+
 Then go to the **Actions** tab → **Morning digest** → **Run workflow** to test it right away.
 After that it runs by itself every morning.
 
