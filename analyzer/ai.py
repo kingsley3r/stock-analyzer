@@ -48,6 +48,11 @@ def write_digest(payload: dict, model: str, effort: str = "medium") -> str:
     # The client reads ANTHROPIC_API_KEY from the environment. Some API keys belong to
     # the whole organization rather than one workspace; those also need the workspace id.
     workspace_id = os.environ.get("ANTHROPIC_WORKSPACE_ID", "").strip()
+    if workspace_id and not workspace_id.startswith("wrkspc_"):
+        raise SystemExit(
+            "ANTHROPIC_WORKSPACE_ID looks wrong: a workspace id starts with 'wrkspc_'. "
+            "Copy it from Claude Console > Settings > Workspaces (not the workspace name)."
+        )
     headers = {"anthropic-workspace-id": workspace_id} if workspace_id else None
     client = anthropic.Anthropic(default_headers=headers)
     user_content = "Here is today's data:\n\n" + json.dumps(payload, ensure_ascii=False, indent=1)
