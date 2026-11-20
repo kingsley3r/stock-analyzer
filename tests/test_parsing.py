@@ -19,7 +19,9 @@ YT = f"""<?xml version="1.0" encoding="UTF-8"?>
 <link rel="alternate" href="https://www.youtube.com/watch?v=abcdefghijk"/>
 <published>{ISO}</published>
 <media:group><media:title>Markets rally on Fed</media:title>
-<media:description>Today we look at the Fed decision.</media:description></media:group></entry>
+<media:description>Today we look at the Fed decision.</media:description>
+<media:community><media:starRating count="1234" average="5.00" min="1" max="5"/><media:statistics views="56789"/></media:community>
+</media:group><author><name>CNBC Television</name></author></entry>
 </feed>"""
 
 
@@ -61,3 +63,11 @@ def test_build_snapshot():
     assert round(snap.change_1d, 2) == round((159 / 158 - 1) * 100, 2)
     assert snap.vs_sma50 > 0 and snap.vs_sma200 is None
     assert snap.to_dict()["tags"] == ["ai"]
+
+
+def test_parse_channel_feed_views_and_likes():
+    vids = youtube.parse_channel_feed(YT, "CNBCtelevision", "news", since=NOW - 86400)
+    assert len(vids) == 1
+    v = vids[0]
+    assert (v.views, v.likes, v.video_id, v.channel_title) == (56789, 1234, "abcdefghijk", "CNBC Television")
+    assert v.description == "Today we look at the Fed decision."

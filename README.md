@@ -80,8 +80,14 @@ After that it runs by itself every morning.
 
 Five tabs: **Today** (signals, biggest moves, the morning briefing), **Watchlist** (every
 symbol with a 30-day mini chart; tap one for a full chart with 50- and 200-day averages),
-**News** (filter by your stocks, AI, crypto) and **Videos** (new videos from your channels) and **Record** (how earlier signals turned out).
-It updates every 30 minutes and right after each morning digest.
+**News** (filter by your stocks, AI, crypto), **Videos** (new videos from your channels with publish time, views, likes and a 🔥 Trending badge) and **Record** (how earlier signals turned out).
+The data updates every 15 minutes and right after each morning digest.
+
+**Live prices (● LIVE):** while the page is open, crypto prices come live from Coinbase (free, no key)
+and US stock prices come live from Finnhub during US trading hours (16:30 to 23:00 Istanbul time).
+The open chart moves with them. European stocks stay about 15 minutes delayed.
+For US live prices add a free Finnhub key: sign up at <https://finnhub.io>, copy the API key from
+the dashboard, and add it as the repository secret `FINNHUB_API_KEY`.
 
 **One-time setup:**
 1. In the repository on github.com open **Settings → Pages** and set **Source** to **GitHub Actions**.
@@ -92,6 +98,21 @@ It updates every 30 minutes and right after each morning digest.
 **Private by password:** all data on the website is encrypted (AES-256) with your password.
 The page asks for it once, and your phone can remember it. Without the password, visitors see
 only a lock screen. To change the password, update the secret and run the Dashboard workflow.
+
+### Edit the watchlist in the app
+
+Tap **Watchlist → ✏️ Edit list**, add or remove symbols, then **Save**. The app saves the
+change to `config/watchlist.yaml` in this repository, and the dashboard rebuilds in about 2 minutes.
+The next morning digest uses the new list too.
+
+Saving needs a GitHub key that can only change this one repository. Create it once:
+1. On github.com open **Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token**.
+2. Name: `stock-analyzer app`. Expiration: 1 year (or what you like).
+3. **Repository access:** *Only select repositories* → `stock-analyzer`.
+4. **Permissions → Repository permissions → Contents:** *Read and write*. Leave everything else as is.
+5. Click **Generate token**, copy it (starts with `github_pat_`), and paste it in the app's editor.
+
+The key is stored only on your phone (in the browser), never in the repository.
 
 **Install on iPhone:** open the address in Safari, tap **Share ⬆️ → Add to Home Screen**.
 It then opens full-screen like a normal app.
@@ -110,7 +131,7 @@ How it is built:
 | `analyzer/track_record.py` | Saves each day's signals and checks them later: a BUY is ✅ right if the price is higher 1 week later, a SELL / DON'T BUY if it's lower. Shown in the **Record** tab. The saved log lives (encrypted) on the `track-record` branch. |
 | `analyzer/lock.py` | Encrypts the data with your password before it is published. |
 | `site/vendor/` | The chart library (TradingView Lightweight Charts, free and open source). |
-| `.github/workflows/dashboard.yml` | Rebuilds the data every 30 minutes and publishes the site. |
+| `.github/workflows/dashboard.yml` | Rebuilds the data every 15 minutes and publishes the site. |
 
 To preview it on your computer: run `python -m analyzer.dashboard_data` (without a password set it
 writes unlocked files, fine for local use), then

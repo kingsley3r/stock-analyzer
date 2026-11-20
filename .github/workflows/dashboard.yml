@@ -4,7 +4,7 @@ name: Dashboard
 # publishes the website on GitHub Pages. No AI is used, so it costs nothing.
 on:
   schedule:
-    - cron: "7,37 * * * *"     # every 30 minutes
+    - cron: "7,22,37,52 * * * *"   # every 15 minutes
   workflow_run:
     workflows: ["Morning digest"]
     types: [completed]          # right after the digest, so signals show up quickly
@@ -43,6 +43,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
         run: |
           # Never publish unlocked data: stop if the password secret is missing.
           if [ -z "$DASHBOARD_PASSWORD" ]; then

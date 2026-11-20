@@ -5,14 +5,16 @@ API key is needed. Transcripts (what is actually said in the video) are
 fetched when possible, because titles alone are often clickbait."""
 from __future__ import annotations
 
+import calendar
 import logging
 import re
 import time
 from dataclasses import dataclass, asdict
 
+import feedparser
 import requests
 
-from .news import HEADERS, parse_feed
+from .news import HEADERS
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +31,11 @@ class Video:
     description: str
     published: str
     transcript: str | None = None
+    channel_title: str = ""      # the channel's display name, e.g. "CNBC Television"
+    video_id: str | None = None
+    published_ts: int = 0        # unix time
+    views: int | None = None
+    likes: int | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -64,8 +71,40 @@ def fetch_transcript(video_id: str) -> str | None:
         return None
 
 
-def collect_videos(sources: dict, max_per_channel: int = 2) -> list[Video]:
-    since = time.time() - sources.get("lookback_hours", 24) * 3600
+def _int(value) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_channel_feed(content: bytes | str, name: str, topic: str, since: float) -> list[Video]:
+    """Reads a channel's feed: title, link, description, publish time, views and likes."""
+    videos = []
+    for e in feedparser.parse(content).entries:
+        parsed = e.get("published_parsed")
+        if not parsed or calendar.timegm(parsed) < since:
+            continue
+        link = e.get("link", "")
+        if "/shorts/" in link:  # skip YouTube Shorts: usually too short to be useful
+            continue
+        ts = calendar.timegm(parsed)
+        videos.append(Video(
+            channel=name, topic=topic, title=e.get("title", ""), link=link,
+            description=re.sub(r"\s+", " ", e.get("summary", "")).strip()[:500],
+            published=time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(ts)),
+            channel_title=e.get("author", name),
+            video_id=e.get("yt_videoid") or video_id_from_link(link),
+            published_ts=ts,
+            views=_int((e.get("media_statistics") or {}).get("views")),
+            likes=_int((e.get("media_starrating") or {}).get("count")),
+        ))
+    return videos
+
+
+def collect_videos(sources: dict, max_per_channel: int = 2, lookback_hours: float | None = None) -> list[Video]:
+    hours = lookback_hours or sources.get("lookback_hours", 24)
+    since = time.time() - hours * 3600
     want_transcripts = sources.get("youtube_transcripts", True)
     videos: list[Video] = []
     transcript_failures = 0  # failures in a row; YouTube may block cloud servers
@@ -82,23 +121,12 @@ def collect_videos(sources: dict, max_per_channel: int = 2) -> list[Video]:
             log.warning("YouTube feed failed for %s: %s", name, e)
             continue
 
-        # The feed's "summary" field holds the video description.
-        entries = parse_feed(resp.content, name, since)
-        # Skip YouTube Shorts: usually too short to be useful.
-        entries = [e for e in entries if "/shorts/" not in e.link][:max_per_channel]
-        log.info("YouTube %-22s %d new videos", name, len(entries))
-
-        for e in entries:
-            transcript = None
-            vid = video_id_from_link(e.link)
+        found = parse_channel_feed(resp.content, name, ch.get("topic", ""), since)[:max_per_channel]
+        log.info("YouTube %-22s %d new videos", name, len(found))
+        for v in found:
             # After 3 failures in a row we assume YouTube is blocking us and stop trying.
-            if want_transcripts and vid and transcript_failures < 3:
-                transcript = fetch_transcript(vid)
-                transcript_failures = 0 if transcript else transcript_failures + 1
-            videos.append(Video(
-                channel=name, topic=ch.get("topic", ""), title=e.title, link=e.link,
-                description=e.summary[:500],
-                published=time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(e.published)),
-                transcript=transcript,
-            ))
-    return videos
+            if want_transcripts and v.video_id and transcript_failures < 3:
+                v.transcript = fetch_transcript(v.video_id)
+                transcript_failures = 0 if v.transcript else transcript_failures + 1
+            videos.append(v)
+    return sorted(videos, key=lambda v: v.published_ts, reverse=True)

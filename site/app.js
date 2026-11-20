@@ -137,6 +137,7 @@ async function load(typedPassword) {
     document.getElementById("updated").textContent = `Updated ${istanbulTime(state.data.generated_at)} · Istanbul`;
     document.getElementById("lock-form")?.remove();  // unlocked: hide the lock screen
     render();
+    startLive();
   } catch (e) {
     document.getElementById("updated").textContent = "Couldn't load data. Tap ↻ to retry.";
     if (!state.data) view.innerHTML = `<div class="empty">No data yet. It appears after the first update run.</div>`;
@@ -159,8 +160,8 @@ function pageToday() {
     <div class="chips">${indices.map((q) => `
       <a class="chip" href="#/s/${q.file}">
         <div class="label">${esc(q.name)}</div>
-        <div class="value num">${fmtPrice(q.last)}</div>
-        <div class="${dir(q.change_1d)}-text num" style="font-size:13px;font-weight:600">${arrow(q.change_1d)} ${fmtPct(q.change_1d)}</div>
+        <div class="value num">${livePrice(q, false)}</div>
+        <div class="num" style="font-size:13px;font-weight:600">${liveChange(q)}</div>
       </a>`).join("")}
     </div>
 
@@ -198,7 +199,7 @@ function signalCard(s) {
       <span class="sym">${esc(s.symbol)}</span><span class="name">${esc(s.name || q?.name || "")}</span>
       ${s.confidence ? `<span class="conf">${"⭐".repeat({ Low: 1, Medium: 2, High: 3 }[s.confidence] || 0)} ${esc(s.confidence)}</span>` : ""}
     </div>
-    ${q ? `<div class="num" style="margin-top:6px;font-size:14px">${fmtPrice(q.last, q.currency)} &nbsp;${pill(q.change_1d)}</div>` : ""}
+    ${q ? `<div class="num" style="margin-top:6px;font-size:14px">${livePrice(q)} &nbsp;${livePill(q)}</div>` : ""}
     ${s.reasons ? `<p class="why">${esc(s.reasons)}</p>` : ""}
   </a>`;
 }
@@ -212,20 +213,24 @@ function row(q) {
     </div>
     ${sparkline(q.spark, q.change_1m)}
     <div class="price">
-      <div class="p num">${fmtPrice(q.last, q.currency)}</div>
-      ${pill(q.change_1d)}
+      <div class="p num">${livePrice(q)}</div>
+      ${livePill(q)}
     </div>
   </a>`;
 }
 
 function pageWatchlist() {
+  if (state.editing) return pageEditWatchlist();
   const q = state.data.quotes;
   const us = q.filter((x) => x.group === "stock" && !(x.tags || []).includes("europe"));
   const eu = q.filter((x) => x.group === "stock" && (x.tags || []).includes("europe"));
   const crypto = q.filter((x) => x.group === "crypto");
   const block = (title, items) => items.length ? `<h2 class="section-title">${title}</h2><div class="list">${items.map(row).join("")}</div>` : "";
-  return block("🇺🇸 US stocks", us) + block("🇪🇺 Europe", eu) + block("₿ Crypto", crypto) +
-    `<p class="disclaimer">Prices from Yahoo Finance, end of day or delayed. Edit the list in config/watchlist.yaml.</p>`;
+  return `<div class="edit-bar"><span class="sub">${q.filter((x) => x.live && live.prices[x.symbol]).length ? "● Some prices are live" : "Prices refresh every 15 minutes"}</span>
+      <button class="pill-btn" data-act="edit">✏️ Edit list</button></div>` +
+    (state.flash ? `<div class="card notice">${state.flash}</div>` : "") +
+    block("🇺🇸 US stocks", us) + block("🇪🇺 Europe", eu) + block("₿ Crypto", crypto) +
+    `<p class="disclaimer">Prices from Yahoo Finance (European stocks about 15 min delayed). Live where marked ● LIVE.</p>`;
 }
 
 function pageNews() {
@@ -247,15 +252,42 @@ function pageNews() {
       </a>`).join("") : `<div class="empty">No articles for this filter.</div>`}</div>`;
 }
 
+const compact = (n) => n == null ? "–" : Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(n);
+
 function pageVideos() {
-  const v = state.data.videos;
-  return `<h2 class="section-title">🎥 New in the last 24 hours</h2>
-    <div class="list">${v.length ? v.map((x) => `
+  const now = Date.now() / 1000;
+  const vids = state.data.videos.map((v) => {
+    const hours = Math.max(1, (now - v.published_ts) / 3600);
+    return { ...v, perHour: v.views == null ? 0 : v.views / hours };
+  });
+  // "Trending": the fastest-growing fifth of videos (views per hour since upload).
+  const rates = vids.map((v) => v.perHour).sort((a, b) => b - a);
+  const hot = rates[Math.max(0, Math.floor(rates.length / 5) - 1)] || Infinity;
+  vids.forEach((v) => { v.trending = v.perHour > 0 && v.perHour >= hot; });
+
+  const sorters = {
+    new: (a, b) => b.published_ts - a.published_ts,
+    views: (a, b) => (b.views || 0) - (a.views || 0),
+    hot: (a, b) => b.perHour - a.perHour,
+  };
+  const list = [...vids].sort(sorters[state.videoSort || "new"]);
+  const btn = (k, label) => `<button data-vsort="${k}" class="${(state.videoSort || "new") === k ? "on" : ""}">${label}</button>`;
+  const when = (ts) => new Date(ts * 1000).toLocaleString("en-GB", { timeZone: TZ, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+  return `<div class="filters">${btn("new", "🕒 Newest")}${btn("views", "👁 Most viewed")}${btn("hot", "🔥 Trending")}</div>
+    <div class="list">${list.length ? list.map((x) => `
       <a class="video" href="${esc(x.link)}" target="_blank" rel="noopener">
-        ${x.id ? `<img loading="lazy" alt="" src="https://i.ytimg.com/vi/${esc(x.id)}/mqdefault.jpg">` : ""}
-        <div><div class="title">${esc(x.title)}</div>
-        <div class="meta">${esc(x.channel)} · ${esc(x.topic)}</div></div>
-      </a>`).join("") : `<div class="empty">No new videos yet today.</div>`}</div>`;
+        <div class="thumb">${x.id ? `<img loading="lazy" alt="" src="https://i.ytimg.com/vi/${esc(x.id)}/mqdefault.jpg">` : ""}
+          ${x.trending ? `<span class="hot">🔥 Trending</span>` : ""}</div>
+        <div class="vbody">
+          <div class="title">${esc(x.title)}</div>
+          <div class="meta">${esc(x.channel_title || x.channel)}</div>
+          <div class="meta num">📅 ${esc(when(x.published_ts))} · ${timeAgo(x.published_ts)}</div>
+          <div class="meta num">👁 ${compact(x.views)} views · 👍 ${compact(x.likes)}${x.views ? ` · ${compact(Math.round(x.perHour))}/h` : ""}</div>
+          ${x.description ? `<div class="desc">${esc(x.description)}</div>` : ""}
+        </div>
+      </a>`).join("") : `<div class="empty">No new videos in the last 3 days.</div>`}</div>
+    <p class="disclaimer">Last 3 days from your channels. Add channels in config/sources.yaml.</p>`;
 }
 
 // Track record: how did earlier signals turn out?
@@ -319,8 +351,8 @@ function pageDetail(file) {
     <a class="back" href="#/watchlist">‹ Watchlist</a>
     <div class="hero">
       <div style="color:var(--ink-3);font-size:14px">${esc(q.symbol)} · ${esc(q.name)}</div>
-      <div class="big num">${fmtPrice(q.last, q.currency)}</div>
-      <div class="chg ${dir(q.change_1d)}-text num">${arrow(q.change_1d)} ${fmtPct(q.change_1d)} today · closed ${esc(q.last_date)}</div>
+      <div class="big num">${livePrice(q)}</div>
+      <div class="chg num">${liveChange(q)} today ${q.live ? `<span class="live-tag" data-livetag="${esc(q.symbol)}">${live.prices[q.symbol] ? "● LIVE" : "○ connecting"}</span>` : `· last price ${esc(q.last_date)}, may be delayed`}</div>
     </div>
     ${sig ? `<div style="margin-top:12px">${signalCard(sig)}</div>` : ""}
 
@@ -403,6 +435,7 @@ async function drawChart(q) {
       priceLineVisible: false, crosshairMarkerRadius: 4 });
     main.setData(candles.map((c) => ({ time: c[0], value: c[4] })));
   }
+  liveChart = { symbol: q.symbol, main, candles, type: state.chartType };
   const lineOpts = { lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false };
   const s50 = chart.addLineSeries({ ...lineOpts, color: cssVar("--sma50") });
   const s200 = chart.addLineSeries({ ...lineOpts, color: cssVar("--sma200") });
@@ -441,11 +474,245 @@ function installHint() {
     <button aria-label="Hide" id="install-x">✕</button></div>`;
 }
 
+// ---------------------------------------------------------------- live prices
+// Crypto: Coinbase sends every price change for free (no account).
+// US stocks: Finnhub sends live trades when you have a free key (FINNHUB_API_KEY secret).
+// Each new price updates the numbers on screen and the last bar of the open chart.
+
+const live = { prices: {}, sockets: {}, retry: {} };
+let liveChart = null;
+
+// Current price and change for a quote, using the live price when we have one.
+function current(q) {
+  const L = live.prices[q.symbol];
+  if (!L) return { price: q.last, chg: q.change_1d };
+  const tickDay = new Date(L.ts).toISOString().slice(0, 10);
+  const base = tickDay === q.last_date ? q.prev_close : q.last;  // compare with yesterday's close
+  return { price: L.price, chg: base ? (L.price / base - 1) * 100 : null };
+}
+const livePrice = (q, withCurrency = true) =>
+  `<span data-lp="${esc(q.symbol)}">${fmtPrice(current(q).price, withCurrency ? q.currency : "")}</span>`;
+const livePill = (q) => `<span data-lpill="${esc(q.symbol)}">${pill(current(q).chg)}</span>`;
+const liveChange = (q) => {
+  const c = current(q).chg;
+  return `<span data-lchg="${esc(q.symbol)}" class="${dir(c)}-text">${arrow(c)} ${fmtPct(c)}</span>`;
+};
+
+const pending = new Set();
+function onTick(symbol, price, ts) {
+  if (!price) return;
+  const prev = live.prices[symbol]?.price;
+  live.prices[symbol] = { price, ts, prev };
+  if (!pending.size) requestAnimationFrame(paint);  // update the screen at most once per frame
+  pending.add(symbol);
+  updateChart(symbol, price, ts);
+}
+
+function paint() {
+  for (const sym of pending) {
+    const q = quoteFor(sym);
+    if (!q) continue;
+    const { price, prev } = live.prices[sym];
+    const flash = prev == null || price === prev ? "" : price > prev ? "flash-up" : "flash-down";
+    const sel = (attr) => document.querySelectorAll(`[${attr}="${CSS.escape(sym)}"]`);
+    sel("data-lp").forEach((el) => {
+      el.textContent = fmtPrice(price, el.closest(".chip") ? "" : q.currency);
+      if (flash) { el.classList.remove("flash-up", "flash-down"); void el.offsetWidth; el.classList.add(flash); }
+    });
+    sel("data-lpill").forEach((el) => { el.innerHTML = pill(current(q).chg); });
+    sel("data-lchg").forEach((el) => { const c = current(q).chg; el.className = `${dir(c)}-text`; el.textContent = `${arrow(c)} ${fmtPct(c)}`; });
+    sel("data-livetag").forEach((el) => { el.textContent = "● LIVE"; });
+  }
+  pending.clear();
+  const dot = document.getElementById("live-dot");
+  if (dot) dot.hidden = !Object.keys(live.prices).length;
+}
+
+function updateChart(symbol, price, ts) {
+  if (!liveChart || liveChart.symbol !== symbol) return;
+  const day = new Date(ts).toISOString().slice(0, 10);
+  const c = liveChart.candles;
+  const last = c[c.length - 1];
+  if (last[0] === day) {
+    last[4] = price; last[2] = Math.max(last[2], price); last[3] = Math.min(last[3], price);
+  } else if (day > last[0]) {
+    c.push([day, price, price, price, price, 0]);
+  } else return;
+  const bar = c[c.length - 1];
+  liveChart.main.update(liveChart.type === "candles"
+    ? { time: bar[0], open: bar[1], high: bar[2], low: bar[3], close: bar[4] }
+    : { time: bar[0], value: bar[4] });
+}
+
+function connect(name, url, onOpen, onMessage) {
+  if (live.sockets[name] || document.visibilityState === "hidden") return;
+  const ws = new WebSocket(url);
+  live.sockets[name] = ws;
+  ws.onopen = () => { live.retry[name] = 0; onOpen(ws); };
+  ws.onmessage = (e) => { try { onMessage(JSON.parse(e.data)); } catch (err) { /* ignore bad messages */ } };
+  ws.onclose = () => {
+    delete live.sockets[name];
+    if (document.visibilityState === "hidden") return;
+    const wait = Math.min(60, 2 ** (live.retry[name] = (live.retry[name] || 0) + 1));  // back off: 2, 4, 8 … 60 s
+    setTimeout(() => connect(name, url, onOpen, onMessage), wait * 1000);
+  };
+}
+
+function startLive() {
+  const quotes = state.data.quotes;
+  const crypto = quotes.filter((q) => q.live === "coinbase").map((q) => q.symbol);
+  if (crypto.length) {
+    connect("coinbase", "wss://ws-feed.exchange.coinbase.com",
+      (ws) => ws.send(JSON.stringify({ type: "subscribe", product_ids: crypto, channels: ["ticker"] })),
+      (m) => { if (m.type === "ticker") onTick(m.product_id, parseFloat(m.price), Date.parse(m.time) || Date.now()); });
+  }
+  const key = state.data.live?.finnhub_key;
+  const us = quotes.filter((q) => q.live === "finnhub").map((q) => q.symbol);
+  if (key && us.length) {
+    connect("finnhub", `wss://ws.finnhub.io?token=${encodeURIComponent(key)}`,
+      (ws) => us.forEach((sym) => ws.send(JSON.stringify({ type: "subscribe", symbol: sym }))),
+      (m) => {
+        if (m.type !== "trade") return;
+        const latest = {};
+        for (const t of m.data || []) if (!latest[t.s] || t.t > latest[t.s].t) latest[t.s] = t;
+        Object.values(latest).forEach((t) => onTick(t.s, t.p, t.t));
+      });
+  }
+}
+function stopLive() {
+  Object.values(live.sockets).forEach((ws) => ws.close());
+}
+
+// ---------------------------------------------------------------- watchlist editor
+// Changes are saved to config/watchlist.yaml in your GitHub repository, using a
+// GitHub key that is stored only on this device. Saving starts the Dashboard
+// workflow, so new symbols show up after about 2 minutes.
+
+const REPO = (() => {
+  const m = location.hostname.match(/^([^.]+)\.github\.io$/);
+  const path = location.pathname.split("/").filter(Boolean)[0];
+  return m && path ? { owner: m[1], name: path } : { owner: "kingsley3r", name: "stock-analyzer" };
+})();
+const ghKey = {
+  get() { try { return localStorage.getItem("ghKey") || ""; } catch (e) { return ""; } },
+  set(v) { try { v ? localStorage.setItem("ghKey", v) : localStorage.removeItem("ghKey"); } catch (e) { /* ignore */ } },
+};
+
+const MARKETS = { us: "🇺🇸 US stock", europe: "🇪🇺 Europe stock", crypto: "₿ Crypto", index: "📊 Index" };
+
+function startEditing() {
+  const w = state.data.watchlist || {};
+  const list = [];
+  (w.indices || []).forEach((i) => list.push({ ...i, market: "index" }));
+  (w.stocks || []).forEach((i) => list.push({ ...i, market: (i.tags || []).includes("europe") ? "europe" : "us" }));
+  (w.crypto || []).forEach((i) => list.push({ ...i, market: "crypto" }));
+  state.draft = list.map((i) => ({ ...i, symbol: String(i.symbol) }));
+  state.editing = true; state.flash = ""; state.editError = "";
+  render();
+}
+
+function pageEditWatchlist() {
+  const items = state.draft;
+  const group = (m) => items.filter((i) => i.market === m);
+  const block = (m) => group(m).length ? `<h2 class="section-title">${MARKETS[m]}</h2><div class="list">${group(m).map((i) => `
+      <div class="row edit-row"><div class="who"><div class="t">${esc(i.name || i.symbol)}</div><div class="s">${esc(i.symbol)}</div></div>
+      <button class="remove" data-remove="${esc(i.symbol)}" aria-label="Remove ${esc(i.symbol)}">✕</button></div>`).join("")}</div>` : "";
+  return `
+    <div class="edit-bar"><b>✏️ Edit watchlist</b><button class="pill-btn" data-act="cancel">Cancel</button></div>
+    <form class="card add-form" id="add-form">
+      <div class="k">Add a symbol</div>
+      <input id="add-symbol" placeholder="Symbol, e.g. NFLX, BMW.DE, XRP-USD" autocapitalize="characters" autocomplete="off" required>
+      <input id="add-name" placeholder="Name, e.g. Netflix (optional)" autocomplete="off">
+      <select id="add-market">${Object.entries(MARKETS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select>
+      <button type="submit" class="primary">➕ Add</button>
+      <p class="hint">Symbols use Yahoo Finance format: find them on finance.yahoo.com. Germany ends in .DE,
+        Amsterdam .AS, Paris .PA. Crypto ends in -USD.</p>
+    </form>
+    ${state.editError ? `<p class="lock-error" style="margin:10px 4px 0">${esc(state.editError)}</p>` : ""}
+    ${block("us")}${block("europe")}${block("crypto")}${block("index")}
+    <div class="card save-card">
+      ${ghKey.get() ? `<p class="hint">🔑 GitHub key saved on this device · <button type="button" class="link" data-act="forget-key">remove</button></p>`
+        : `<label class="k" for="gh-key">🔑 Your GitHub key (needed once, stays on this phone)</label>
+           <input id="gh-key" type="password" placeholder="github_pat_…" autocomplete="off">
+           <p class="hint">How to create it: see “Edit the watchlist in the app” in the README.</p>`}
+      <button class="primary" data-act="save" ${state.saving ? "disabled" : ""}>${state.saving ? "Saving…" : "💾 Save changes"}</button>
+    </div>`;
+}
+
+function toYaml(items) {
+  const line = (i) => {
+    const parts = [`symbol: ${JSON.stringify(i.symbol)}`, `name: ${JSON.stringify(i.name || i.symbol)}`];
+    const tags = (i.tags || []).filter((t) => t !== "europe");
+    if (i.market === "europe") tags.push("europe");
+    if (tags.length && (i.market === "us" || i.market === "europe")) parts.push(`tags: [${tags.map((t) => JSON.stringify(t)).join(", ")}]`);
+    return `  - { ${parts.join(", ")} }`;
+  };
+  const sect = (key, ms) => {
+    const rows = items.filter((i) => ms.includes(i.market)).map(line);
+    return rows.length ? `${key}:\n${rows.join("\n")}\n` : `${key}: []\n`;
+  };
+  return `# Your watchlist. Last edited in the app on ${new Date().toISOString().slice(0, 10)}.
+# Symbols use Yahoo Finance format: AAPL, SAP.DE, ASML.AS, BTC-USD, ^GSPC.
+# You can edit it in the app (Watchlist > Edit list) or here.
+
+${sect("indices", ["index"])}
+${sect("stocks", ["us", "europe"])}
+${sect("crypto", ["crypto"])}`;
+}
+
+async function saveWatchlist() {
+  const typed = document.getElementById("gh-key")?.value.trim();
+  if (typed) ghKey.set(typed);
+  const token = ghKey.get();
+  if (!token) { state.editError = "Please paste your GitHub key first."; render(); return; }
+  state.saving = true; state.editError = ""; render();
+  const url = `https://api.github.com/repos/${REPO.owner}/${REPO.name}/contents/config/watchlist.yaml`;
+  const headers = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" };
+  try {
+    const cur = await fetch(`${url}?ref=main`, { headers, cache: "no-store" });
+    if (cur.status === 401) throw new Error("GitHub didn't accept the key. Check it was copied completely.");
+    if (!cur.ok) throw new Error(`The key can't read the repository (error ${cur.status}). Check it has access to ${REPO.name}.`);
+    const { sha } = await cur.json();
+    const bytes = new TextEncoder().encode(toYaml(state.draft));
+    const content = btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join(""));
+    const put = await fetch(url, { method: "PUT", headers, body: JSON.stringify({
+      message: "Update watchlist from the app", content, sha, branch: "main" }) });
+    if (put.status === 403 || put.status === 404) throw new Error("The key can read but not save. Give it “Contents: Read and write” permission.");
+    if (!put.ok) throw new Error(`Saving failed (error ${put.status}). Try again in a minute.`);
+    // Show the edited list right away; prices for new symbols come with the next update.
+    state.data.watchlist = {
+      indices: state.draft.filter((i) => i.market === "index"),
+      stocks: state.draft.filter((i) => i.market === "us" || i.market === "europe"),
+      crypto: state.draft.filter((i) => i.market === "crypto"),
+    };
+    state.editing = false;
+    state.flash = "✅ Saved. New symbols appear in about 2 minutes (tap ↻ then).";
+  } catch (e) {
+    state.editError = e.message || "Saving failed. Check your internet connection.";
+  } finally {
+    state.saving = false;
+    render();
+  }
+}
+
+view.addEventListener("submit", (e) => {
+  if (e.target.id !== "add-form") return;
+  e.preventDefault();
+  const symbol = document.getElementById("add-symbol").value.trim().toUpperCase();
+  const name = document.getElementById("add-name").value.trim();
+  const market = document.getElementById("add-market").value;
+  if (!/^[\^A-Z0-9][A-Z0-9.\-=^]{0,14}$/.test(symbol)) { state.editError = `“${symbol}” doesn't look like a symbol.`; render(); return; }
+  if (state.draft.some((i) => i.symbol === symbol)) { state.editError = `${symbol} is already on the list.`; render(); return; }
+  state.draft.push({ symbol, name: name || symbol, market, tags: [] });
+  state.editError = "";
+  render();
+});
+
 // ---------------------------------------------------------------- router
 
 function render() {
   if (!state.data) return;
-  if (chart) { chart.remove(); chart = null; }
+  if (chart) { chart.remove(); chart = null; liveChart = null; }
   if (document.getElementById("lock-form")) return;
   const hash = location.hash || "#/";
   const [, page, arg] = hash.split("/");
@@ -468,6 +735,12 @@ view.addEventListener("click", (e) => {
   const b = e.target.closest("button");
   if (!b) return;
   if (b.dataset.filter) { state.newsFilter = b.dataset.filter; render(); }
+  if (b.dataset.vsort) { state.videoSort = b.dataset.vsort; render(); }
+  if (b.dataset.remove) { state.draft = state.draft.filter((i) => i.symbol !== b.dataset.remove); render(); }
+  if (b.dataset.act === "edit") startEditing();
+  if (b.dataset.act === "cancel") { state.editing = false; render(); }
+  if (b.dataset.act === "save") saveWatchlist();
+  if (b.dataset.act === "forget-key") { ghKey.set(""); render(); }
   const seg = b.closest("[data-seg]");
   if (seg) {
     if (seg.dataset.seg === "range") state.range = b.dataset.v;
@@ -489,7 +762,8 @@ window.addEventListener("hashchange", () => { render(); window.scrollTo(0, 0); }
 document.getElementById("refresh").addEventListener("click", () => load());
 // Reload fresh data when you come back to the app (unless the lock screen is showing).
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && !document.getElementById("lock-form")) load();
+  if (document.visibilityState === "hidden") { stopLive(); return; }  // save battery in the background
+  if (!document.getElementById("lock-form") && !state.editing) load();
 });
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
 

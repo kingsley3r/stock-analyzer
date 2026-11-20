@@ -145,6 +145,18 @@ def match_symbols(signals: list[dict], quotes: list[dict]) -> None:
                 break
 
 
+FINNHUB_KEY = os.environ.get("FINNHUB_API_KEY", "").strip()
+
+
+def live_source(symbol: str, group: str) -> str | None:
+    """Where the browser can get live prices for this symbol, if anywhere."""
+    if group == "crypto" and symbol.endswith("-USD"):
+        return "coinbase"   # free, no key
+    if group == "stock" and re.fullmatch(r"[A-Z.]{1,6}", symbol) and "." not in symbol and FINNHUB_KEY:
+        return "finnhub"    # US stocks, free key
+    return None
+
+
 # --------------------------------------------------------------------------- main
 
 def build() -> None:
@@ -183,11 +195,13 @@ def build() -> None:
         q["file"] = safe_name(symbol)
         q["currency"] = currency_for(symbol, group)
         q["spark"] = [c[4] for c in candles[-30:]]
+        q["prev_close"] = candles[-2][4] if len(candles) > 1 else None
+        q["live"] = live_source(symbol, group)
         quotes.append(q)
 
     articles = news.collect_news(sources, watchlist)[:150]
     yt_sources = {**sources, "youtube_transcripts": False}  # titles are enough here
-    videos = youtube.collect_videos(yt_sources, max_per_channel=3)
+    videos = youtube.collect_videos(yt_sources, max_per_channel=5, lookback_hours=72)
 
     digest = latest_digest()
     if digest:
@@ -207,8 +221,11 @@ def build() -> None:
         "quotes": quotes,
         "digest": digest,
         "track_record": record,
+        "watchlist": watchlist,   # the app's watchlist editor starts from this
+        # The key is only readable after unlocking with your password.
+        "live": {"finnhub_key": FINNHUB_KEY or None},
         "news": [a.to_dict() | {"ts": int(a.published)} for a in articles],
-        "videos": [v.to_dict() | {"id": youtube.video_id_from_link(v.link)} for v in videos],
+        "videos": [v.to_dict() | {"id": v.video_id} for v in videos],
     }
     write(SITE_DATA / "latest.json", latest)
     # lock.json tells the website whether (and how) the data is locked.
