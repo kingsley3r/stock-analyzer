@@ -18,7 +18,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import dividends, earnings, inbox, news, news_alerts, paper, price_alerts, prices, track_record, youtube
+from . import dividends, earnings, fundamentals, inbox, news, news_alerts, paper, price_alerts, prices, track_record, youtube
 from .lock import Locker
 from .config import ROOT, load_dotenv, load_yaml
 
@@ -207,6 +207,7 @@ def build() -> None:
     safely("News alerts", lambda: news_alerts.run(articles, watchlist, quotes, {"news_alerts": alert_cfg},
                                                   record_dir / "alerts.json"))
     divs = safely("Dividends", lambda: dividends.run(watchlist, record_dir / "dividends.json"), {})
+    funda = safely("Fundamentals", lambda: fundamentals.run(watchlist, record_dir / "fundamentals.json"), {})
     safely("Inbox cleanup", inbox.prune)
 
     latest = {
@@ -225,6 +226,7 @@ def build() -> None:
         "earnings": upcoming,
         "dividends": divs,
         "dividend_cfg": settings.get("dividends") or {},
+        "fundamentals": funda,    # company numbers for the ⚖️ Compare page
         # Notifications: the public key the app subscribes with, and how many phones have them on.
         "push": {"key": inbox.public_key(password or None), "phones": len(safely("Phones", inbox.subscriptions, []))},
         "news": [a.to_dict() | {"ts": int(a.published)} for a in articles],
