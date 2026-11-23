@@ -1,5 +1,6 @@
 """Company numbers for the app's ⚖️ Compare page: size, valuation, profit,
-growth, risk and what analysts think.
+growth, risk and what analysts think. Plus exchange rates to US dollars, so
+companies that report in euros, kroner or Taiwan dollars can be compared.
 
 Data from Yahoo Finance (yfinance `Ticker.info`), fetched once a day and kept
 in record/fundamentals.json (public company data, nothing about you).
@@ -15,6 +16,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 log = logging.getLogger(__name__)
+VERSION = 2  # raise when FIELDS change, so the cache is refreshed the same day
 TZ = ZoneInfo("Europe/Istanbul")
 
 # Yahoo field -> our short name. Fractions stay fractions (0.25 = 25%); the app formats them.
@@ -33,6 +35,24 @@ FIELDS = {
     "targetMeanPrice": "target",
     "sector": "sector",
     "industry": "industry",
+    # size and profit (in financial_currency, the currency of the company's reports)
+    "totalRevenue": "revenue",
+    "netIncomeToCommon": "net_income",
+    "freeCashflow": "free_cash_flow",
+    "grossMargins": "gross_margin",
+    "operatingMargins": "operating_margin",
+    "earningsGrowth": "earnings_growth",
+    "fullTimeEmployees": "employees",
+    # per share (in currency, the currency of the share price)
+    "trailingEps": "eps",
+    "forwardEps": "forward_eps",
+    "sharesOutstanding": "shares",
+    "averageVolume": "avg_volume",
+    "currency": "currency",
+    "financialCurrency": "financial_currency",
+    # coins
+    "circulatingSupply": "supply",
+    "maxSupply": "max_supply",
 }
 
 
@@ -56,12 +76,31 @@ def fetch(symbol: str) -> dict | None:
     return clean(yf.Ticker(symbol).info or {})
 
 
-def run(watchlist: dict, state_file: Path, today: date | None = None, fetcher=fetch) -> dict:
+def fx_rate(currency: str) -> float | None:
+    """How many US dollars one unit of `currency` is worth today."""
+    import yfinance as yf
+    df = yf.Ticker(f"{currency}USD=X").history(period="5d")
+    closes = [float(v) for v in df["Close"] if v == v] if df is not None and len(df) else []
+    return round(closes[-1], 6) if closes else None
+
+
+def currencies(found: dict) -> set[str]:
+    out = set()
+    for f in found.values():
+        for key in ("currency", "financial_currency"):
+            c = str(f.get(key) or "").upper()
+            if c and c != "USD":
+                out.add(c)  # "GBp" (pence) becomes "GBP": the app divides by 100
+    return out
+
+
+def run(watchlist: dict, state_file: Path, today: date | None = None, fetcher=fetch, fx=fx_rate) -> dict:
     """{symbol: {market_cap, pe, ...}} for every watchlist stock and coin."""
     today = today or datetime.now(TZ).date()
     cache = json.loads(state_file.read_text()) if state_file.exists() else {}
     symbols = [str(s["symbol"]) for key in ("stocks", "crypto") for s in watchlist.get(key) or []]
-    if cache.get("fetched") != today.isoformat() or set(cache.get("checked", [])) != set(symbols):
+    if (cache.get("fetched") != today.isoformat() or cache.get("v") != VERSION
+            or set(cache.get("checked", [])) != set(symbols)):
         old = cache.get("symbols") or {}
         found = {}
         for sym in symbols:
@@ -73,8 +112,25 @@ def run(watchlist: dict, state_file: Path, today: date | None = None, fetcher=fe
             hit = hit or old.get(sym)  # keep yesterday's numbers when Yahoo has a bad day
             if hit:
                 found[sym] = hit
-        cache = {"fetched": today.isoformat(), "checked": sorted(symbols), "symbols": found}
+        rates = {"USD": 1.0}
+        for cur in sorted(currencies(found)):
+            try:
+                rate = fx(cur)
+            except Exception as exc:  # noqa: BLE001
+                log.info("Fundamentals: no exchange rate for %s (%s)", cur, exc)
+                rate = None
+            rate = rate or (cache.get("fx") or {}).get(cur)
+            if rate:
+                rates[cur] = rate
+        cache = {"fetched": today.isoformat(), "checked": sorted(symbols), "symbols": found, "fx": rates, "v": VERSION}
         state_file.parent.mkdir(parents=True, exist_ok=True)
         state_file.write_text(json.dumps(cache, sort_keys=True))
         log.info("Fundamentals: numbers for %d of %d symbols", len(found), len(symbols))
     return cache.get("symbols") or {}
+
+
+def rates(state_file: Path) -> dict:
+    """{currency: US dollars per unit} saved by the last run()."""
+    if not state_file.exists():
+        return {"USD": 1.0}
+    return json.loads(state_file.read_text()).get("fx") or {"USD": 1.0}

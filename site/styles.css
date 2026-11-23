@@ -491,3 +491,7 @@ table.cmp td.best::before { content: "🏆"; font-size: 10px; margin-right: 2px;
 .cmp-help { margin-top: 12px; font-size: 14px; color: var(--ink-2); }
 .cmp-help summary { cursor: pointer; font-weight: 600; color: var(--ink); }
 .cmp-help p { margin: 8px 0 0; }
+table.cmp .rng { position: relative; height: 6px; min-width: 60px; margin: 6px 0 4px; border-radius: 3px;
+  background: linear-gradient(90deg, var(--down-bg), var(--up-bg)); }
+table.cmp .rng i { position: absolute; top: -3px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%;
+  background: var(--ink); border: 2px solid var(--card); }

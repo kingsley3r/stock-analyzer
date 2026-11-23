@@ -227,6 +227,7 @@ def build() -> None:
         "dividends": divs,
         "dividend_cfg": settings.get("dividends") or {},
         "fundamentals": funda,    # company numbers for the ⚖️ Compare page
+        "fx": safely("Exchange rates", lambda: fundamentals.rates(record_dir / "fundamentals.json"), {"USD": 1.0}),
         # Notifications: the public key the app subscribes with, and how many phones have them on.
         "push": {"key": inbox.public_key(password or None), "phones": len(safely("Phones", inbox.subscriptions, []))},
         "news": [a.to_dict() | {"ts": int(a.published)} for a in articles],

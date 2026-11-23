@@ -1956,7 +1956,15 @@ function pageCompare(arg) {
       <p><b>Up days</b>: share of days that closed higher than the day before.</p>
       <p><b>Below 1-year high</b>: how far the price is under its highest point of the last 12 months.</p>
       <p><b>RSI</b>: above 70 often means "ran up fast, may cool off"; below 30 means "sold off hard, may bounce".</p>
+      <p><b>Market value</b>: what the whole company (or all coins) costs at today's price: price × number of shares. Shown in US dollars so all are comparable.</p>
+      <p><b>Yearly sales / profit</b>: money the company took in and kept over the last 12 months. <b>Free cash flow</b>: real cash left after paying for running and investing in the business.</p>
+      <p><b>Coins in circulation / max coins</b>: how many coins exist now and the most there can ever be. "Already created" near 100% means few new coins will dilute the price.</p>
       <p><b>P/E</b>: share price ÷ yearly profit per share. "How many years of profit you pay for." Lower is cheaper, but fast growers usually have a high P/E. <b>Forward P/E</b> uses next year's expected profit.</p>
+      <p><b>Cash flow yield</b>: free cash flow ÷ market value. 5% means the company makes 5 cents of cash a year for every dollar you pay. Higher is cheaper.</p>
+      <p><b>EPS</b>: profit per share, in the share's own currency. <b>EPS growth expected</b>: how much analysts expect it to grow next year.</p>
+      <p><b>Gross / operating / profit margin</b>: what's left of every dollar of sales after making the product, after running the company, and at the very end (after interest and tax).</p>
+      <p><b>1-year range</b>: the dot shows where today's price sits between the lowest and highest price of the last 12 months.</p>
+      <p><b>Traded per day</b>: money that changes hands each day on average. More means easier to buy or sell without moving the price.</p>
       <p><b>P/S</b>: company value ÷ yearly sales. Useful when there's little profit yet.</p>
       <p><b>Profit margin</b>: how many cents of every dollar of sales are kept as profit.</p>
       <p><b>Sales growth</b>: sales compared with the same quarter a year ago.</p>
@@ -1966,7 +1974,7 @@ function pageCompare(arg) {
       <p><b>Move together</b>: +1 means they always move the same way, 0 means no link. Owning two that move together doesn't spread your risk.</p>
     </details>
     <p class="disclaimer">🏆 marks the better number in a row, which is only one part of the picture.
-      Changes are in each symbol's own currency. Company numbers from Yahoo Finance, updated daily. Not financial advice.</p>`;
+      Changes are in each symbol's own currency; sizes are in US dollars at today's exchange rate. Company numbers from Yahoo Finance, updated daily. Not financial advice.</p>`;
 }
 
 function fmtCap(v, cur) {
@@ -1975,6 +1983,19 @@ function fmtCap(v, cur) {
   const num = Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(v);
   return c.length === 1 ? `${c}${num}` : `${num} ${c}`;
 }
+// Converts an amount to US dollars with the day's rates (data.fx), so a company
+// that reports in euros or Taiwan dollars can be compared with a US one.
+const PRICE_CUR = { "$": "USD", "€": "EUR", "DKK": "DKK", "GBp": "GBp", "CHF": "CHF", "SEK": "SEK", "NOK": "NOK" };
+function toUSD(v, cur) {
+  if (v == null || !cur) return null;
+  const pence = cur === "GBp";
+  const rate = (state.data.fx || { USD: 1 })[pence ? "GBP" : String(cur).toUpperCase()];
+  return rate ? v * rate / (pence ? 100 : 1) : null;
+}
+const priceCur = (x) => x.f.currency || PRICE_CUR[(x.q.currency || "$").trim()] || "USD";
+const usd = (v) => v == null ? "–" : `${v < 0 ? "−" : ""}$${Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(Math.abs(v))}`;
+const count = (v) => v == null ? "–" : Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(v);
+
 const RATING = { strong_buy: "🟢 Strong buy", buy: "🟢 Buy", hold: "🟡 Hold", underperform: "🔴 Under­perform", sell: "🔴 Sell", strong_sell: "🔴 Strong sell" };
 
 async function drawCompare(arg) {
@@ -2040,6 +2061,11 @@ async function drawCompare(arg) {
       fromHigh: hl.high ? (price / hl.high - 1) * 100 : null,
       divYield: q.group === "stock" ? (latestDiv && paid.length && price ? latestDiv * paid.length / price * 100 : 0) : null,
       upside: f.target && price ? (f.target / price - 1) * 100 : null,
+      hl, posInYear: hl.high > hl.low ? Math.min(100, Math.max(0, (price - hl.low) / (hl.high - hl.low) * 100)) : null,
+      tradedPerDay: q.group === "index" ? null : (() => {  // average money traded per day, last 20 days
+        const last = c.slice(-20).filter((x) => x[5] > 0);
+        return last.length ? last.reduce((s, x) => s + x[4] * x[5], 0) / last.length : null;
+      })(),
       sig: signalFor(q.symbol),
       earn: (state.data.earnings || []).find((e) => e.symbol === q.symbol && daysUntil(e.date) >= 0),
     };
@@ -2049,6 +2075,21 @@ async function drawCompare(arg) {
   const pct = (v) => v == null ? "–" : `<span class="${dir(v)}-text">${fmtPct(v)}</span>`;
   const plain = (v, digits = 1, suffix = "") => v == null ? "–" : `${v.toFixed(digits)}${suffix}`;
   const ratio = (v) => v == null ? "–" : `${(v * 100).toFixed(1)}%`;
+  // Same currency for everyone: market value and company numbers in US dollars.
+  cols.forEach((x) => {
+    const pc = priceCur(x), fc = x.f.financial_currency || pc;
+    x.capUSD = toUSD(x.f.market_cap, pc === "GBp" ? "GBP" : pc);
+    x.revUSD = toUSD(x.f.revenue, fc);
+    x.incomeUSD = toUSD(x.f.net_income, fc);
+    x.fcfUSD = toUSD(x.f.free_cash_flow, fc);
+    x.tradedUSD = toUSD(x.tradedPerDay, pc);
+    x.fcfYield = x.fcfUSD != null && x.capUSD ? x.fcfUSD / x.capUSD * 100 : null;
+    x.epsGrowth = x.f.eps > 0 && x.f.forward_eps != null ? (x.f.forward_eps / x.f.eps - 1) * 100 : null;
+    x.mined = x.f.supply && x.f.max_supply ? x.f.supply / x.f.max_supply * 100 : null;
+  });
+  const local = (v, x) => v == null ? "–" : fmtPrice(v, x.q.currency);
+  const range = (x) => x.posInYear == null ? "–" : `<div class="rng" title="Where today's price sits in the last 12 months"><i style="left:${x.posInYear.toFixed(0)}%"></i></div>
+      <div class="hint">${fmtPrice(x.hl.low)} – ${fmtPrice(x.hl.high)}</div>`;
   const sections = [
     ["📈 Price & change", [
       ["Price", (x) => livePrice(x.q)],
@@ -2075,16 +2116,41 @@ async function drawCompare(arg) {
       ["RSI (14)", (x) => x.q.rsi14 == null ? "–" : `${x.q.rsi14.toFixed(0)}${x.q.rsi14 > 70 ? " 🔥" : x.q.rsi14 < 30 ? " 🧊" : ""}`],
       ["Volume vs avg", (x) => plain(x.q.volume_ratio, 1, "×")],
     ]],
-    ["🏢 Company & value", [
-      ["Market value", (x) => fmtCap(x.f.market_cap, x.q.currency)],
+    ["🏢 Size", [
+      ["Market value", (x) => usd(x.capUSD), "high", (x) => x.capUSD],
+      ["In own currency", (x) => priceCur(x) === "USD" || x.f.market_cap == null ? "–" : fmtCap(x.f.market_cap, x.q.currency)],
+      ["Yearly sales", (x) => usd(x.revUSD), "high", (x) => x.revUSD],
+      ["Yearly profit", (x) => x.incomeUSD == null ? "–" : `<span class="${dir(x.incomeUSD)}-text">${usd(x.incomeUSD)}</span>`, "high", (x) => x.incomeUSD],
+      ["Free cash flow", (x) => usd(x.fcfUSD), "high", (x) => x.fcfUSD],
+      ["Employees", (x) => count(x.f.employees)],
+      ["Shares", (x) => x.q.group === "crypto" ? "–" : count(x.f.shares)],
+      ["Coins in circulation", (x) => x.q.group === "crypto" ? count(x.f.supply) : "–"],
+      ["Max coins ever", (x) => x.q.group !== "crypto" ? "–" : x.f.max_supply ? count(x.f.max_supply) : x.f.supply ? "no limit" : "–"],
+      ["Already created", (x) => plain(x.mined, 0, "%")],
+      ["Sector", (x) => esc(x.f.sector || (x.q.group === "crypto" ? "Crypto" : x.q.group === "index" ? "Index" : "–"))],
+    ]],
+    ["🏷️ Price tag", [
       ["P/E", (x) => plain(x.f.pe, 1), "low", (x) => x.f.pe > 0 ? x.f.pe : null],
       ["Forward P/E", (x) => plain(x.f.forward_pe, 1), "low", (x) => x.f.forward_pe > 0 ? x.f.forward_pe : null],
       ["P/S", (x) => plain(x.f.ps, 1), "low", (x) => x.f.ps],
+      ["Cash flow yield", (x) => plain(x.fcfYield, 1, "%"), "high", (x) => x.fcfYield],
+      ["Profit per share (EPS)", (x) => local(x.f.eps, x)],
+      ["Expected next year", (x) => local(x.f.forward_eps, x)],
+      ["EPS growth expected", (x) => pct(x.epsGrowth), "high", (x) => x.epsGrowth],
+    ]],
+    ["💪 Profit & health", [
+      ["Gross margin", (x) => ratio(x.f.gross_margin), "high", (x) => x.f.gross_margin],
+      ["Operating margin", (x) => ratio(x.f.operating_margin), "high", (x) => x.f.operating_margin],
       ["Profit margin", (x) => ratio(x.f.margin), "high", (x) => x.f.margin],
       ["Sales growth", (x) => x.f.revenue_growth == null ? "–" : pct(x.f.revenue_growth * 100), "high", (x) => x.f.revenue_growth],
+      ["Profit growth", (x) => x.f.earnings_growth == null ? "–" : pct(x.f.earnings_growth * 100), "high", (x) => x.f.earnings_growth],
       ["Return on equity", (x) => ratio(x.f.roe), "high", (x) => x.f.roe],
       ["Debt / equity", (x) => plain(x.f.debt_equity, 0), "low", (x) => x.f.debt_equity],
-      ["Sector", (x) => esc(x.f.sector || (x.q.group === "crypto" ? "Crypto" : x.q.group === "index" ? "Index" : "–"))],
+    ]],
+    ["🔄 Trading", [
+      ["1-year range", range],
+      ["Traded per day", (x) => usd(x.tradedUSD), "high", (x) => x.tradedUSD],
+      ["Avg volume", (x) => count(x.f.avg_volume)],
     ]],
     ["💰 Dividend", [
       ["Yield", (x) => x.divYield == null ? "–" : x.divYield ? `${x.divYield.toFixed(2)}%` : "none", "high", (x) => x.divYield || null],
@@ -2117,6 +2183,13 @@ async function drawCompare(arg) {
   if (byRet.length >= 2) {
     const top = byRet[0], low = byRet[byRet.length - 1];
     lines.push(`📈 Over ${state.range}, ${nm(top)} did best (${fmtPct(top.ret)})${byRet.length > 1 ? `, ${nm(low)} did worst (${fmtPct(low.ret)})` : ""}.`);
+  }
+  const bySize = cols.filter((x) => x.capUSD).sort((a, b) => b.capUSD - a.capUSD);
+  if (bySize.length >= 2) {
+    const big = bySize[0], small = bySize[bySize.length - 1], k = big.capUSD / small.capUSD;
+    lines.push(k >= 1.3
+      ? `🏢 ${nm(big)} is worth about ${k >= 10 ? Math.round(k) : k.toFixed(1)}× as much as ${nm(small)} (${usd(big.capUSD)} vs ${usd(small.capUSD)}).`
+      : `🏢 ${nm(big)} and ${nm(small)} are about the same size (${usd(big.capUSD)} vs ${usd(small.capUSD)}).`);
   }
   const byVol = cols.filter((x) => x.vol).sort((a, b) => a.vol - b.vol);
   if (byVol.length >= 2) {
