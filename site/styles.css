@@ -495,3 +495,24 @@ table.cmp .rng { position: relative; height: 6px; min-width: 60px; margin: 6px 0
   background: linear-gradient(90deg, var(--down-bg), var(--up-bg)); }
 table.cmp .rng i { position: absolute; top: -3px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%;
   background: var(--ink); border: 2px solid var(--card); }
+
+/* 🧮 ETF calculator (Portfolio > Calc) */
+.calc-intro { margin: 10px 4px; font-size: 14px; color: var(--ink-2); }
+.calc-form label.k { display: flex; flex-direction: column; gap: 4px; }
+.calc-form label.k b { color: var(--ink); }
+.calc-form input[type=number] { font: inherit; font-size: 16px; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--card-2); color: var(--ink); width: 100%; box-sizing: border-box; }
+.calc-form input[type=range] { width: 100%; accent-color: var(--up-mark); margin: 6px 0 0; }
+.calc-form .hint a { color: var(--info); text-decoration: none; font-weight: 600; margin-left: 4px; }
+.link-btn { border: 0; background: none; padding: 0; font: inherit; color: var(--info); font-weight: 600; cursor: pointer; margin-left: 4px; }
+.calc-range { font-size: 13px; color: var(--ink-2); }
+.calc-result .hint { margin-top: 8px; }
+.legend i.dash { background: none; border-top: 2px dashed var(--ink-3); height: 0; }
+#calc-chart { height: 260px; width: 100%; }
+.calc-table-card { padding: 8px 12px; }
+table.calc-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.calc-table th { text-align: right; font-size: 12px; color: var(--ink-3); font-weight: 600; padding: 6px 4px; }
+table.calc-table td { text-align: right; padding: 7px 4px; border-top: 1px solid var(--line); }
+table.calc-table th:first-child, table.calc-table td:first-child { text-align: left; }
+table.calc-table td.hint { font-size: 12px; }
+.seg.wide button { white-space: nowrap; padding-left: 4px; padding-right: 4px; }
