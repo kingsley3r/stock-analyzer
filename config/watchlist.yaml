@@ -31,6 +31,13 @@ stocks:
   - { symbol: "MC.PA", name: "LVMH", tags: ["europe"] }
   - { symbol: "NOVO-B.CO", name: "Novo Nordisk", tags: ["europe"] }
 
+# ETFs (funds). These are UCITS ETFs on Xetra, which flatex sells to EU investors.
+etfs:
+  - { symbol: "VWCE.DE", name: "Vanguard FTSE All-World" }
+  - { symbol: "EUNL.DE", name: "iShares Core MSCI World" }
+  - { symbol: "SXR8.DE", name: "iShares Core S&P 500" }
+  - { symbol: "EQQQ.DE", name: "Invesco Nasdaq-100" }
+
 crypto:
   - { symbol: "BTC-USD", name: "Bitcoin" }
   - { symbol: "ETH-USD", name: "Ethereum" }

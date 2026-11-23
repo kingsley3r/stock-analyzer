@@ -21,6 +21,7 @@ const CALC_ETFS = [
   { s: "SXR8.DE", n: "iShares Core S&P 500 (Acc)", cur: "€", ret: 10, ter: 0.07, yld: 1.3, acc: true, about: "the 500 biggest US companies" },
   { s: "VUSA.DE", n: "Vanguard S&P 500 (Dist)", cur: "€", ret: 10, ter: 0.07, yld: 1.2, acc: false, about: "the 500 biggest US companies, pays dividends out" },
   { s: "SXRV.DE", n: "iShares Nasdaq 100 (Acc)", cur: "€", ret: 12, ter: 0.30, yld: 0.6, acc: true, about: "100 big US tech-heavy companies, bigger swings" },
+  { s: "EQQQ.DE", n: "Invesco Nasdaq-100 (Dist)", cur: "€", ret: 12, ter: 0.30, yld: 0.5, acc: false, about: "100 big US tech-heavy companies, bigger swings" },
   { s: "IS3N.DE", n: "iShares Core MSCI EM IMI (Acc)", cur: "€", ret: 7, ter: 0.18, yld: 2.5, acc: true, about: "emerging markets like China, India, Taiwan" },
   { s: "VGWD.DE", n: "Vanguard FTSE All-World High Dividend (Dist)", cur: "€", ret: 7.5, ter: 0.29, yld: 3.2, acc: false, about: "high-dividend companies worldwide" },
   { s: "EXSA.DE", n: "iShares STOXX Europe 600 (Dist)", cur: "€", ret: 7, ter: 0.20, yld: 3.0, acc: false, about: "600 European companies" },
@@ -57,15 +58,22 @@ function calcEtfInfo(symbol) {
     const yrs = (Date.parse(last[0]) - Date.parse(first[0])) / (365.25 * 86400000);
     if (first[4] > 0 && yrs > 0.8) ret = (Math.pow(last[4] / first[4], 1 / yrs) - 1) * 100;
   }
+  // Fund numbers from Yahoo (fractions: 0.002 = 0.2%), when the app has them.
+  const f = (state.data.fundamentals || {})[symbol] || {};
+  const ter = f.fee != null ? f.fee * 100 : 0.2;
+  if (f.return_5y != null) {  // the fund's own 5-year average, after its costs
+    const yld5 = f.fund_yield != null ? f.fund_yield * 100 : 0;
+    return { s: symbol, n: q.name, cur: q.currency || "€", file: q.file, ret: +(f.return_5y * 100 + ter).toFixed(1),
+      ter: +ter.toFixed(2), yld: +yld5.toFixed(2), acc: yld5 === 0, src: "5y", about: "" };
+  }
   const d = (state.data.dividends || {})[symbol];
-  let yld = 0;
-  if (d?.history?.length && q.last) {
+  let yld = f.fund_yield != null ? f.fund_yield * 100 : 0;
+  if (!yld && d?.history?.length && q.last) {
     const yearAgo = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
     yld = d.history.filter(([dt]) => dt > yearAgo).reduce((s, [, a]) => s + a, 0) / q.last * 100;
   }
-  const etf = q.etf || {};  // filled in by the app's ETF data, when available
   return { s: symbol, n: q.name, cur: q.currency || "€", file: q.file,
-    ret: ret == null ? 8 : +(ret + yld).toFixed(1), ter: etf.expense_ratio ?? 0.2, yld: +yld.toFixed(2),
+    ret: ret == null ? 8 : +(ret + yld + ter).toFixed(1), ter: +ter.toFixed(2), yld: +yld.toFixed(2),
     acc: yld === 0, src: ret == null ? "guess" : "history", about: "" };
 }
 
@@ -107,6 +115,7 @@ function calcView() {
   const num = (id, label, v, extra = "") => `<label>${label}<input id="${id}" type="number" inputmode="decimal" step="any" min="0" value="${v}" ${extra}></label>`;
   const onWatchlist = (state.data?.quotes || []).find((q) => q.symbol === e.s);
   const srcNote = e.src === "preset" ? `is about the long-term average of what it tracks (${esc(e.about)})`
+    : e.src === "5y" ? "comes from this fund's last 5 years (before its costs); 5 years is short, so long-term averages are often lower"
     : e.src === "history" ? "comes from the last ~2 years of prices only, so take it with a pinch of salt"
     : "is a general guess (no price history yet)";
   return `
@@ -129,7 +138,7 @@ function calcView() {
         ${num("c-ter", "Yearly cost, TER (%)", +p.ter.toFixed(2), 'max="5"')}
       </div>
       <p class="hint">📈 ${+e.ret.toFixed(2)}% a year ${srcNote}.
-        ${c.ret != null || c.ter != null ? `<button type="button" class="link-btn" data-act="calc-reset">↺ Use the ETF's numbers</button>` : ""}
+        <button type="button" class="link-btn" data-act="calc-reset" ${c.ret != null || c.ter != null ? "" : "hidden"}>↺ Use the ETF's numbers</button>
         ${onWatchlist ? `<a href="#/s/${esc(onWatchlist.file)}">See chart ›</a>` : ""}</p>
       <div class="k">Dividends (≈ ${+p.yld.toFixed(2)}% a year)</div>
       <div class="seg wide" data-seg="calc-div">
@@ -166,6 +175,8 @@ function calcUpdate() {
   const growth = base.value - base.putIn;
   const out = document.getElementById("calc-out");
   if (!out) return;
+  const reset = document.querySelector("[data-act=calc-reset]");
+  if (reset) reset.hidden = state.calc.ret == null && state.calc.ter == null;
   out.innerHTML = `
     <div class="card pf-total calc-result">
       <div class="k">Estimated value after ${Y} year${Y === 1 ? "" : "s"}${p.real ? " · in today's money" : ""}</div>
@@ -240,12 +251,17 @@ async function openCalc(file) {
   if (!state.calc) state.calc = { ...CALC_DEFAULTS, ...calcSaved.get() };
   const q = file && file !== "-" ? (state.data.quotes || []).find((x) => x.file === file || x.symbol === file) : null;
   const sym = q?.symbol || (CALC_ETFS.some((e) => e.s === file) ? file : null);
-  if (sym && sym !== state.calc.etf) { state.calc.etf = sym; state.calc.ret = null; state.calc.ter = null; }
+  const here = () => location.hash.startsWith("#/calc") || state.pfTab === "calc";
+  if (sym && sym !== state.calc.etf) {
+    state.calc.etf = sym; state.calc.ret = null; state.calc.ter = null; calcSaved.set(state.calc);
+    view.innerHTML = pagePortfolio();  // the form was drawn for the previous ETF
+  }
   // Watchlist ETFs need their price history for the yearly return.
   const wq = (state.data.quotes || []).find((x) => x.symbol === state.calc.etf);
   if (wq && !CALC_ETFS.some((e) => e.s === wq.symbol) && !historyCache[wq.file]) {
     try { historyCache[wq.file] = (await getJSON(`data/history/${wq.file}.json`)).candles; } catch (e) { /* use a guess */ }
-    if (location.hash.startsWith("#/calc") || state.pfTab === "calc") { view.innerHTML = pagePortfolio(); }
+    if (!here()) return;
+    view.innerHTML = pagePortfolio();
   }
   calcUpdate();
 }
