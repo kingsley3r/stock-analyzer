@@ -120,7 +120,7 @@ def live_source(symbol: str, group: str) -> str | None:
     """Where the browser can get live prices for this symbol, if anywhere."""
     if group == "crypto" and symbol.endswith("-USD"):
         return "coinbase"   # free, no key
-    if group == "stock" and re.fullmatch(r"[A-Z.]{1,6}", symbol) and "." not in symbol and FINNHUB_KEY:
+    if group in ("stock", "etf") and re.fullmatch(r"[A-Z.]{1,6}", symbol) and "." not in symbol and FINNHUB_KEY:
         return "finnhub"    # US stocks, free key
     return None
 

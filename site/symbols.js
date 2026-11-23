@@ -1,6 +1,6 @@
 // Popular symbols for the watchlist search (Yahoo Finance format).
 // The search also asks Finnhub for anything not in this list, when a Finnhub key is set.
-// Format: [symbol, name, market]   market: us | europe | crypto | index
+// Format: [symbol, name, market]   market: us | europe | etf | crypto | index
 window.SYMBOLS = [
   // US: big tech and AI
   ["AAPL","Apple","us"],["MSFT","Microsoft","us"],["NVDA","NVIDIA","us"],["GOOGL","Alphabet (Google)","us"],
@@ -27,9 +27,9 @@ window.SYMBOLS = [
   ["CAT","Caterpillar","us"],["GE","GE Aerospace","us"],["F","Ford","us"],["GM","General Motors","us"],
   ["T","AT&T","us"],["VZ","Verizon","us"],["HD","Home Depot","us"],["PG","Procter & Gamble","us"],
   // US: ETFs
-  ["SPY","SPDR S&P 500 ETF","us"],["QQQ","Invesco Nasdaq-100 ETF","us"],["VOO","Vanguard S&P 500 ETF","us"],
-  ["VTI","Vanguard Total Stock Market ETF","us"],["SMH","VanEck Semiconductor ETF","us"],["ARKK","ARK Innovation ETF","us"],
-  ["GLD","SPDR Gold ETF","us"],["IBIT","iShares Bitcoin Trust ETF","us"],
+  ["SPY","SPDR S&P 500 ETF","etf"],["QQQ","Invesco Nasdaq-100 ETF","etf"],["VOO","Vanguard S&P 500 ETF","etf"],
+  ["VTI","Vanguard Total Stock Market ETF","etf"],["SMH","VanEck Semiconductor ETF","etf"],["ARKK","ARK Innovation ETF","etf"],
+  ["GLD","SPDR Gold ETF","etf"],["IBIT","iShares Bitcoin Trust ETF","etf"],
   // Europe
   ["ASML.AS","ASML Holding","europe"],["SAP.DE","SAP","europe"],["SIE.DE","Siemens","europe"],
   ["ALV.DE","Allianz","europe"],["DTE.DE","Deutsche Telekom","europe"],["BMW.DE","BMW","europe"],
@@ -55,6 +55,17 @@ window.SYMBOLS = [
   ["UNI-USD","Uniswap","crypto"],["PEPE-USD","Pepe","crypto"],["HBAR-USD","Hedera","crypto"],["ATOM-USD","Cosmos","crypto"],
   ["ARB-USD","Arbitrum","crypto"],["OP-USD","Optimism","crypto"],["RNDR-USD","Render","crypto"],["FET-USD","Fetch.ai (ASI)","crypto"],
   // Indices
+  // ETFs: UCITS funds on Xetra (what flatex sells in the EU), then the big US ones for reference
+  ["VWCE.DE","Vanguard FTSE All-World (Acc)","etf"],["VGWL.DE","Vanguard FTSE All-World (Dist)","etf"],
+  ["EUNL.DE","iShares Core MSCI World","etf"],["IWDA.AS","iShares Core MSCI World (Amsterdam)","etf"],
+  ["SXR8.DE","iShares Core S&P 500","etf"],["VUAA.DE","Vanguard S&P 500 (Acc)","etf"],["VUSA.DE","Vanguard S&P 500 (Dist)","etf"],
+  ["EQQQ.DE","Invesco Nasdaq-100","etf"],["SXRV.DE","iShares Nasdaq 100","etf"],["IS3N.DE","iShares Core MSCI Emerging Markets","etf"],
+  ["XDWD.DE","Xtrackers MSCI World","etf"],["SPPW.DE","SPDR MSCI World","etf"],["EXS1.DE","iShares Core DAX","etf"],
+  ["SXRT.DE","iShares Core Euro Stoxx 50","etf"],["IUSQ.DE","iShares MSCI ACWI","etf"],["VHYL.DE","Vanguard FTSE All-World High Dividend","etf"],
+  ["TDIV.AS","VanEck Morningstar Dev. Markets Dividend","etf"],["ZPRV.DE","SPDR MSCI USA Small Cap Value","etf"],
+  ["QDVE.DE","iShares S&P 500 Information Technology","etf"],["VVSM.DE","VanEck Semiconductor","etf"],
+  ["2B76.DE","iShares Automation & Robotics","etf"],["IS0E.DE","iShares Gold Producers","etf"],["4GLD.DE","Xetra-Gold","etf"],
+  ["SCHD","Schwab US Dividend Equity ETF","etf"],
   ["^GSPC","S&P 500","index"],["^NDX","Nasdaq 100","index"],["^IXIC","Nasdaq Composite","index"],["^DJI","Dow Jones","index"],
   ["^RUT","Russell 2000","index"],["^VIX","VIX (fear index)","index"],["^GDAXI","DAX (Germany)","index"],
   ["^STOXX50E","Euro Stoxx 50","index"],["^FCHI","CAC 40 (France)","index"],["^FTSE","FTSE 100 (UK)","index"],

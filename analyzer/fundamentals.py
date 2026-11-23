@@ -4,6 +4,8 @@ companies that report in euros, kroner or Taiwan dollars can be compared.
 
 Data from Yahoo Finance (yfinance `Ticker.info`), fetched once a day and kept
 in record/fundamentals.json (public company data, nothing about you).
+For ETFs (funds) we keep fund numbers instead: yearly fee, fund size, payout
+yield, average returns, top holdings and sectors.
 Free: no AI is used. Indices are skipped (they have no company numbers).
 """
 from __future__ import annotations
@@ -16,7 +18,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 log = logging.getLogger(__name__)
-VERSION = 2  # raise when FIELDS change, so the cache is refreshed the same day
+VERSION = 3  # raise when FIELDS change, so the cache is refreshed the same day
 TZ = ZoneInfo("Europe/Istanbul")
 
 # Yahoo field -> our short name. Fractions stay fractions (0.25 = 25%); the app formats them.
@@ -53,7 +55,46 @@ FIELDS = {
     # coins
     "circulatingSupply": "supply",
     "maxSupply": "max_supply",
+    # ETFs (funds). Fractions: 0.012 = 1.2%.
+    "quoteType": "type",
+    "totalAssets": "fund_size",
+    "yield": "fund_yield",
+    "threeYearAverageReturn": "return_3y",
+    "fiveYearAverageReturn": "return_5y",
+    "category": "category",
+    "fundFamily": "provider",
 }
+
+
+def fund_extras(ticker) -> dict:
+    """Fee, top holdings and sectors of an ETF (yfinance funds_data). Missing parts are skipped."""
+    out = {}
+    fd = ticker.funds_data
+    try:
+        ops = fd.fund_operations
+        col = ops.columns[0]
+        fee = ops.loc["Annual Report Expense Ratio", col]
+        if fee == fee and fee is not None:
+            out["fee"] = round(float(fee), 6)
+    except Exception:  # noqa: BLE001
+        pass
+    if "fee" not in out:
+        net = (ticker.info or {}).get("netExpenseRatio")  # given in percent: 0.07 = 0.07%
+        if isinstance(net, (int, float)) and net == net:
+            out["fee"] = round(float(net) / 100, 6)
+    try:
+        th = fd.top_holdings
+        out["holdings"] = [[str(sym), str(row.get("Name") or sym), round(float(row.get("Holding Percent") or 0), 4)]
+                           for sym, row in th.head(10).iterrows()]
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        sw = {k: round(float(v), 4) for k, v in (fd.sector_weightings or {}).items() if v}
+        if sw:
+            out["sectors"] = dict(sorted(sw.items(), key=lambda kv: -kv[1])[:5])
+    except Exception:  # noqa: BLE001
+        pass
+    return out
 
 
 def clean(info: dict) -> dict | None:
@@ -73,7 +114,14 @@ def clean(info: dict) -> dict | None:
 
 def fetch(symbol: str) -> dict | None:
     import yfinance as yf
-    return clean(yf.Ticker(symbol).info or {})
+    t = yf.Ticker(symbol)
+    out = clean(t.info or {}) or {}
+    if out.get("type") == "ETF":
+        try:
+            out.update(fund_extras(t))
+        except Exception as exc:  # noqa: BLE001
+            log.info("Fundamentals: no fund details for %s (%s)", symbol, exc)
+    return out or None
 
 
 def fx_rate(currency: str) -> float | None:
@@ -98,7 +146,7 @@ def run(watchlist: dict, state_file: Path, today: date | None = None, fetcher=fe
     """{symbol: {market_cap, pe, ...}} for every watchlist stock and coin."""
     today = today or datetime.now(TZ).date()
     cache = json.loads(state_file.read_text()) if state_file.exists() else {}
-    symbols = [str(s["symbol"]) for key in ("stocks", "crypto") for s in watchlist.get(key) or []]
+    symbols = [str(s["symbol"]) for key in ("stocks", "etfs", "crypto") for s in watchlist.get(key) or []]
     if (cache.get("fetched") != today.isoformat() or cache.get("v") != VERSION
             or set(cache.get("checked", [])) != set(symbols)):
         old = cache.get("symbols") or {}

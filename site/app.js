@@ -392,6 +392,7 @@ function pageWatchlist() {
   const us = q.filter((x) => x.group === "stock" && !(x.tags || []).includes("europe") && notFav(x));
   const eu = q.filter((x) => x.group === "stock" && (x.tags || []).includes("europe") && notFav(x));
   const crypto = q.filter((x) => x.group === "crypto" && notFav(x));
+  const etfs = q.filter((x) => x.group === "etf" && notFav(x));
   const block = (title, items) => items.length ? `<h2 class="section-title">${title}</h2><div class="list">${items.map((x) => row(x, { star: true })).join("")}</div>` : "";
   const favBlock = !fav.length ? `<p class="hint fav-hint">Tip: tap ☆ to pin a stock to the top and to your Today page.</p>`
     : state.reorder ? `<h2 class="section-title">⭐ Favorites <button class="pill-btn small" data-act="reorder-done">✓ Done</button></h2>
@@ -405,7 +406,7 @@ function pageWatchlist() {
   return `<div class="edit-bar"><span class="sub">${q.filter((x) => x.live && live.prices[x.symbol]).length ? "● Some prices are live" : "Prices refresh every 15 minutes"}</span>
       <button class="pill-btn" data-act="edit">✏️ Edit list</button></div>` +
     (state.flash ? `<div class="card notice">${state.flash}</div>` : "") +
-    favBlock + earningsSection() + block(`🇺🇸 US stocks ${marketTag("us")}`, us) + block(`🇪🇺 Europe ${marketTag("de")}`, eu) + block("₿ Crypto", crypto) +
+    favBlock + earningsSection() + block(`🇺🇸 US stocks ${marketTag("us")}`, us) + block(`🇪🇺 Europe ${marketTag("de")}`, eu) + block("🧺 ETFs", etfs) + block("₿ Crypto", crypto) +
     `<p class="disclaimer">Prices from Yahoo Finance (European stocks about 15 min delayed). Live where marked ● LIVE.</p>`;
 }
 
@@ -574,6 +575,7 @@ function pageDetail(file) {
     <a class="pill-btn cmp-btn" href="${compareHref([q, comparePartner(q)].filter(Boolean))}">⚖️ Compare with others</a>
     ${earningsLine(q)}
     ${dividendLine(q)}
+    ${fundCard(q)}
 
     <div class="controls">${seg("range", ["1M", "3M", "6M", "1Y", "2Y"], state.range)}${seg("type", ["line", "candles"], state.chartType)}</div>
     <div class="card" style="padding:10px 6px 6px">
@@ -819,13 +821,14 @@ const ghKey = {
   set(v) { try { v ? localStorage.setItem("ghKey", v) : localStorage.removeItem("ghKey"); } catch (e) { /* ignore */ } },
 };
 
-const MARKETS = { us: "🇺🇸 US stock", europe: "🇪🇺 Europe stock", crypto: "₿ Crypto", index: "📊 Index" };
+const MARKETS = { us: "🇺🇸 US stock", europe: "🇪🇺 Europe stock", etf: "🧺 ETF", crypto: "₿ Crypto", index: "📊 Index" };
 
 function startEditing() {
   const w = state.data.watchlist || {};
   const list = [];
   (w.indices || []).forEach((i) => list.push({ ...i, market: "index" }));
   (w.stocks || []).forEach((i) => list.push({ ...i, market: (i.tags || []).includes("europe") ? "europe" : "us" }));
+  (w.etfs || []).forEach((i) => list.push({ ...i, market: "etf" }));
   (w.crypto || []).forEach((i) => list.push({ ...i, market: "crypto" }));
   state.draft = list.map((i) => ({ ...i, symbol: String(i.symbol) }));
   state.editing = true; state.flash = ""; state.editError = "";
@@ -842,7 +845,7 @@ function pageEditWatchlist() {
     <div class="edit-bar"><b>✏️ Edit watchlist</b><button class="pill-btn" data-act="cancel">Cancel</button></div>
     ${state.flash ? `<div class="card notice">${esc(state.flash)}</div>` : ""}
     <form class="card add-form" id="add-form" autocomplete="off">
-      <label class="k" for="add-search">➕ Add a stock, coin or index</label>
+      <label class="k" for="add-search">➕ Add a stock, ETF, coin or index</label>
       <div class="search-wrap">
         <input id="add-search" type="search" placeholder="🔎 Type a name or symbol, e.g. Netflix, BMW, XRP" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search">
         <div id="suggest" class="suggest" role="listbox" hidden></div>
@@ -851,7 +854,7 @@ function pageEditWatchlist() {
         (e.g. BMW.DE, XRP-USD) and pick “Add as typed”.</p>
     </form>
     ${state.editError ? `<p class="lock-error" style="margin:10px 4px 0">${esc(state.editError)}</p>` : ""}
-    ${block("us")}${block("europe")}${block("crypto")}${block("index")}
+    ${block("us")}${block("europe")}${block("etf")}${block("crypto")}${block("index")}
     <div class="card save-card">
       ${keyField()}
       <button class="primary" data-act="save" ${state.saving ? "disabled" : ""}>${state.saving ? "Saving…" : "💾 Save changes"}</button>
@@ -876,6 +879,7 @@ function toYaml(items) {
 
 ${sect("indices", ["index"])}
 ${sect("stocks", ["us", "europe"])}
+${sect("etfs", ["etf"])}
 ${sect("crypto", ["crypto"])}`;
 }
 
@@ -1000,6 +1004,7 @@ async function saveWatchlist() {
     state.data.watchlist = {
       indices: state.draft.filter((i) => i.market === "index"),
       stocks: state.draft.filter((i) => i.market === "us" || i.market === "europe"),
+      etfs: state.draft.filter((i) => i.market === "etf"),
       crypto: state.draft.filter((i) => i.market === "crypto"),
     };
     state.editing = false;
@@ -1017,10 +1022,11 @@ async function saveWatchlist() {
 // adds more from Finnhub's symbol search when a Finnhub key is set.
 
 const EU_SUFFIX = ["DE", "AS", "PA", "MI", "MC", "L", "SW", "VI", "BR", "LS", "ST", "CO", "HE", "OL", "IR"];
-const MARKET_TAG = { us: "🇺🇸 US", europe: "🇪🇺 EU", crypto: "₿ Crypto", index: "📊 Index" };
+const MARKET_TAG = { us: "🇺🇸 US", europe: "🇪🇺 EU", etf: "🧺 ETF", crypto: "₿ Crypto", index: "📊 Index" };
 
 function guessMarket(symbol) {
   if (symbol.startsWith("^")) return "index";
+  if ((window.SYMBOLS || []).some((s) => s[0] === symbol && s[2] === "etf")) return "etf";
   if (/-(USD|EUR|USDT)$/.test(symbol)) return "crypto";
   const dot = symbol.lastIndexOf(".");
   return dot > 0 && EU_SUFFIX.includes(symbol.slice(dot + 1)) ? "europe" : "us";
@@ -1060,7 +1066,7 @@ async function finnhubMatches(q) {
         if (/^[A-Z]{1,5}\.[A-Z]$/.test(symbol)) symbol = symbol.replace(".", "-"); else continue;
       }
       const name = String(it.description || symbol).toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
-      out.push({ symbol, name, market: guessMarket(symbol) });
+      out.push({ symbol, name, market: it.type === "ETP" ? "etf" : guessMarket(symbol) });
       if (out.length >= 8) break;
     }
     finnhubCache.set(q, out);
@@ -1851,6 +1857,7 @@ function comparePartner(q) {
   const tags = q.tags || [];
   const pick = q.group === "crypto" ? (q.symbol === "BTC-USD" ? "ETH-USD" : "BTC-USD")
     : q.group === "index" ? (q.symbol === "^GSPC" ? "^IXIC" : "^GSPC")
+    : q.group === "etf" ? (state.data.quotes.find((x) => x.group === "etf" && x !== q)?.symbol || "^GSPC")
     : tags.includes("europe") ? (q.symbol.endsWith(".DE") ? "^GDAXI" : "^STOXX50E") : "^GSPC";
   return quoteFor(pick) || state.data.quotes.find((x) => x !== q && x.group === q.group);
 }
@@ -1920,6 +1927,7 @@ function pageCompare(arg) {
   const groups = [["📊 Indices", (x) => x.group === "index"],
     ["🇺🇸 US stocks", (x) => x.group === "stock" && !(x.tags || []).includes("europe")],
     ["🇪🇺 Europe", (x) => x.group === "stock" && (x.tags || []).includes("europe")],
+    ["🧺 ETFs", (x) => x.group === "etf"],
     ["₿ Crypto", (x) => x.group === "crypto"]];
   const options = groups.map(([label, test]) => {
     const items = state.data.quotes.filter(test);
@@ -1965,6 +1973,7 @@ function pageCompare(arg) {
       <p><b>Gross / operating / profit margin</b>: what's left of every dollar of sales after making the product, after running the company, and at the very end (after interest and tax).</p>
       <p><b>1-year range</b>: the dot shows where today's price sits between the lowest and highest price of the last 12 months.</p>
       <p><b>Traded per day</b>: money that changes hands each day on average. More means easier to buy or sell without moving the price.</p>
+      <p><b>ETF</b>: a fund that holds many stocks at once, bought like one share. <b>Yearly fee</b>: taken from the fund every year (0.20% = €2 per €1,000). Lower is better. <b>Fund size</b>: money invested in it; bigger funds are less likely to close. <b>Top 10 = share of fund</b>: how much of your money sits in the 10 biggest holdings.</p>
       <p><b>P/S</b>: company value ÷ yearly sales. Useful when there's little profit yet.</p>
       <p><b>Profit margin</b>: how many cents of every dollar of sales are kept as profit.</p>
       <p><b>Sales growth</b>: sales compared with the same quarter a year ago.</p>
@@ -1995,6 +2004,24 @@ function toUSD(v, cur) {
 const priceCur = (x) => x.f.currency || PRICE_CUR[(x.q.currency || "$").trim()] || "USD";
 const usd = (v) => v == null ? "–" : `${v < 0 ? "−" : ""}$${Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(Math.abs(v))}`;
 const count = (v) => v == null ? "–" : Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(v);
+
+const SECTOR_NAME = { technology: "Tech", healthcare: "Health care", financial_services: "Finance", consumer_cyclical: "Consumer",
+  consumer_defensive: "Staples", communication_services: "Communication", industrials: "Industry", energy: "Energy",
+  basic_materials: "Materials", realestate: "Real estate", utilities: "Utilities" };
+// "NVIDIA Corp" -> "NVIDIA", short enough for a table cell.
+const shortName = (name, sym) => String(name || sym).replace(/\b(Inc|Corp|Corporation|Ltd|PLC|plc|AG|SE|NV|SA|Co|Class [A-C]|Holdings?)\b\.?/g, "")
+  .replace(/[,.]+\s*$/, "").replace(/\s+/g, " ").trim().slice(0, 18) || sym;
+
+// 🧺 Fund details on an ETF's own page.
+function fundCard(q) {
+  const f = (state.data.fundamentals || {})[q.symbol];
+  if (q.group !== "etf" || !f) return "";
+  const bits = [f.fee != null ? `fee ${(f.fee * 100).toFixed(2)}% a year` : "", f.fund_size ? `size ${fmtCap(f.fund_size, q.currency)}` : "",
+    f.category ? esc(f.category) : ""].filter(Boolean).join(" · ");
+  const hold = (f.holdings || []).slice(0, 5).map(([sym, name, w]) => `${esc(shortName(name, sym))} ${(w * 100).toFixed(1)}%`).join(" · ");
+  return `<div class="card info-line">🧺 <b>Fund</b>${bits ? `: ${bits}` : ""}
+    ${hold ? `<div class="hint">Biggest holdings: ${hold}</div>` : ""}</div>`;
+}
 
 const RATING = { strong_buy: "🟢 Strong buy", buy: "🟢 Buy", hold: "🟡 Hold", underperform: "🔴 Under­perform", sell: "🔴 Sell", strong_sell: "🔴 Strong sell" };
 
@@ -2059,7 +2086,7 @@ async function drawCompare(arg) {
       q, f, price, ...rangeStats(c, from, q.group === "crypto"),
       r1m: backReturn(c, 30), r3m: backReturn(c, 91), r6m: backReturn(c, 182), r1y: backReturn(c, 365), r2y: backReturn(c, 730),
       fromHigh: hl.high ? (price / hl.high - 1) * 100 : null,
-      divYield: q.group === "stock" ? (latestDiv && paid.length && price ? latestDiv * paid.length / price * 100 : 0) : null,
+      divYield: q.group === "stock" || q.group === "etf" ? (latestDiv && paid.length && price ? latestDiv * paid.length / price * 100 : 0) : null,
       upside: f.target && price ? (f.target / price - 1) * 100 : null,
       hl, posInYear: hl.high > hl.low ? Math.min(100, Math.max(0, (price - hl.low) / (hl.high - hl.low) * 100)) : null,
       tradedPerDay: q.group === "index" ? null : (() => {  // average money traded per day, last 20 days
@@ -2127,7 +2154,7 @@ async function drawCompare(arg) {
       ["Coins in circulation", (x) => x.q.group === "crypto" ? count(x.f.supply) : "–"],
       ["Max coins ever", (x) => x.q.group !== "crypto" ? "–" : x.f.max_supply ? count(x.f.max_supply) : x.f.supply ? "no limit" : "–"],
       ["Already created", (x) => plain(x.mined, 0, "%")],
-      ["Sector", (x) => esc(x.f.sector || (x.q.group === "crypto" ? "Crypto" : x.q.group === "index" ? "Index" : "–"))],
+      ["Sector", (x) => esc(x.f.sector || (x.q.group === "crypto" ? "Crypto" : x.q.group === "index" ? "Index" : x.q.group === "etf" ? "Fund (ETF)" : "–"))],
     ]],
     ["🏷️ Price tag", [
       ["P/E", (x) => plain(x.f.pe, 1), "low", (x) => x.f.pe > 0 ? x.f.pe : null],
@@ -2151,6 +2178,18 @@ async function drawCompare(arg) {
       ["1-year range", range],
       ["Traded per day", (x) => usd(x.tradedUSD), "high", (x) => x.tradedUSD],
       ["Avg volume", (x) => count(x.f.avg_volume)],
+    ]],
+    ["🧺 Fund (ETF)", [
+      ["Yearly fee", (x) => x.f.fee == null ? "–" : `${(x.f.fee * 100).toFixed(2)}%`, "low", (x) => x.f.fee],
+      ["Fund size", (x) => usd(toUSD(x.f.fund_size, priceCur(x) === "GBp" ? "GBP" : priceCur(x))), "high", (x) => toUSD(x.f.fund_size, priceCur(x) === "GBp" ? "GBP" : priceCur(x))],
+      ["Avg yearly return, 3 years", (x) => x.f.return_3y == null ? "–" : pct(x.f.return_3y * 100), "high", (x) => x.f.return_3y],
+      ["Avg yearly return, 5 years", (x) => x.f.return_5y == null ? "–" : pct(x.f.return_5y * 100), "high", (x) => x.f.return_5y],
+      ["Category", (x) => esc(x.f.category || "–")],
+      ["Provider", (x) => esc(x.f.provider || "–")],
+      ["Biggest holdings", (x) => x.f.holdings?.length ? x.f.holdings.slice(0, 3).map(([sym, name, w]) =>
+        `<div class="hold">${esc(shortName(name, sym))} <span class="hint">${(w * 100).toFixed(1)}%</span></div>`).join("") : "–"],
+      ["Top 10 = share of fund", (x) => x.f.holdings?.length ? `${(x.f.holdings.reduce((t, h) => t + h[2], 0) * 100).toFixed(0)}%` : "–"],
+      ["Biggest sector", (x) => { const e = Object.entries(x.f.sectors || {})[0]; return e ? `${esc(SECTOR_NAME[e[0]] || e[0])} <span class="hint">${(e[1] * 100).toFixed(0)}%</span>` : "–"; }],
     ]],
     ["💰 Dividend", [
       ["Yield", (x) => x.divYield == null ? "–" : x.divYield ? `${x.divYield.toFixed(2)}%` : "none", "high", (x) => x.divYield || null],
@@ -2190,6 +2229,14 @@ async function drawCompare(arg) {
     lines.push(k >= 1.3
       ? `🏢 ${nm(big)} is worth about ${k >= 10 ? Math.round(k) : k.toFixed(1)}× as much as ${nm(small)} (${usd(big.capUSD)} vs ${usd(small.capUSD)}).`
       : `🏢 ${nm(big)} and ${nm(small)} are about the same size (${usd(big.capUSD)} vs ${usd(small.capUSD)}).`);
+  }
+  const funds = cols.filter((x) => x.f.holdings?.length);
+  if (funds.length >= 2) {
+    const [a, b] = funds, inB = new Map(b.f.holdings.map((h) => [h[0], h[2]]));
+    const shared = a.f.holdings.filter((h) => inB.has(h[0]));
+    lines.push(shared.length
+      ? `🧺 ${nm(a)} and ${nm(b)} share ${shared.length} of their top 10 holdings (${shared.slice(0, 3).map((h) => esc(shortName(h[1], h[0]))).join(", ")}${shared.length > 3 ? " …" : ""}). Owning both doubles up on those.`
+      : `🧺 ${nm(a)} and ${nm(b)} have no top-10 holdings in common, so they spread your money differently.`);
   }
   const byVol = cols.filter((x) => x.vol).sort((a, b) => a.vol - b.vol);
   if (byVol.length >= 2) {

@@ -148,6 +148,10 @@ reloads itself once.
 
 ### More tools
 
+- **🧺 ETFs:** the watchlist has an ETFs section (starts with 4 UCITS ETFs on Xetra that flatex
+  sells: VWCE, EUNL, SXR8, EQQQ). Add more in ✏️ Edit list (search knows the popular ones).
+  ETF pages show the yearly fee, fund size and biggest holdings; Compare adds fee, size,
+  3/5-year returns, top holdings and how much two ETFs overlap.
 - **⚖️ Compare tab:** put 2 to 4 stocks, coins or indices side by side. One chart where every line
   starts at 0 % (fair even when prices are very different), a few plain sentences (who did best,
   who swings more, how much they move together), and a table: changes, risk, trend, company
