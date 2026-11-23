@@ -151,7 +151,9 @@ reloads itself once.
 - **⚖️ Compare tab:** put 2 to 4 stocks, coins or indices side by side. One chart where every line
   starts at 0 % (fair even when prices are very different), a few plain sentences (who did best,
   who swings more, how much they move together), and a table: changes, risk, trend, company
-  numbers (P/E, margins, growth, debt), dividend yield, AI signal and analyst view. 🏆 marks the
+  size in US dollars (market value, yearly sales, profit, free cash flow, employees, coin supply),
+  price tag (P/E, P/S, cash flow yield, EPS), margins, growth, debt, 1-year range, money traded
+  per day, dividend yield, AI signal and analyst view. 🏆 marks the
   better number per row. Open it from the tab or with **⚖️ Compare with others** on any stock page.
   Company numbers come from Yahoo Finance once a day (`analyzer/fundamentals.py`, cached in
   `record/fundamentals.json`).
