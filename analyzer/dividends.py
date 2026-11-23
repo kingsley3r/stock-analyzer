@@ -53,7 +53,7 @@ def run(watchlist: dict, state_file: Path, today: date | None = None) -> dict:
     """{symbol: {history, next_ex, next_pay}} for every watchlist stock that pays dividends."""
     today = today or datetime.now(TZ).date()
     cache = json.loads(state_file.read_text()) if state_file.exists() else {}
-    symbols = [str(s["symbol"]) for s in watchlist.get("stocks") or []]
+    symbols = [str(s["symbol"]) for key in ("stocks", "etfs") for s in watchlist.get(key) or []]
     if cache.get("fetched") != today.isoformat() or set(cache.get("checked", [])) != set(symbols):
         found = {}
         for sym in symbols:

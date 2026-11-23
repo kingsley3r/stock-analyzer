@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 class Snapshot:
     symbol: str
     name: str
-    group: str            # "index", "stock" or "crypto"
+    group: str            # "index", "stock", "etf" or "crypto"
     last: float
     last_date: str
     change_1d: float | None
@@ -65,7 +65,7 @@ def build_snapshot(symbol, name, group, tags, closes, volumes, last_date) -> Sna
 
 def _entries(watchlist: dict) -> list[tuple[str, str, str, list]]:
     entries = []
-    for group_key, group in (("indices", "index"), ("stocks", "stock"), ("crypto", "crypto")):
+    for group_key, group in (("indices", "index"), ("stocks", "stock"), ("etfs", "etf"), ("crypto", "crypto")):
         for item in watchlist.get(group_key, []) or []:
             entries.append((str(item["symbol"]), item.get("name", item["symbol"]), group, item.get("tags", [])))
     return entries
