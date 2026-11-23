@@ -444,3 +444,11 @@ label.pill-btn { cursor: pointer; }
 @media (max-width: 380px) { .bar-val { display: none; } }
 .row .who .s.wrap { white-space: normal; }
 .inbox-row .who .t { white-space: normal; }
+
+/* "Show more" under long lists */
+.show-more {
+  display: block; width: 100%; margin-top: 8px; padding: 11px 12px; border: 0; border-radius: var(--radius);
+  background: var(--card); color: var(--info); font-size: 15px; font-weight: 600; cursor: pointer;
+}
+.show-more span { color: var(--ink-3); font-weight: 400; }
+.show-more:active { opacity: .7; }
