@@ -7,6 +7,7 @@
 //        #/            Today        #/watchlist   Watchlist
 //        #/news        News         #/videos      Videos
 //        #/s/NVDA      Detail page with a chart for one symbol
+//        #/compare/NVDA,AMD   Two to four symbols side by side
 //   3. Each page is a function that returns HTML, which we put into <main id="view">.
 
 const TZ = "Europe/Istanbul";
@@ -570,6 +571,7 @@ function pageDetail(file) {
       <div class="chg num">${liveChange(q)} today ${q.live ? `<span class="live-tag" data-livetag="${esc(q.symbol)}">${live.prices[q.symbol] ? "● LIVE" : "○ connecting"}</span>` : `· last price ${esc(q.last_date)}, may be delayed`}</div>
     </div>
     ${sig ? `<div style="margin-top:12px">${signalCard(sig)}</div>` : ""}
+    <a class="pill-btn cmp-btn" href="${compareHref([q, comparePartner(q)].filter(Boolean))}">⚖️ Compare with others</a>
     ${earningsLine(q)}
     ${dividendLine(q)}
 
@@ -1813,6 +1815,342 @@ function dividendLine(q) {
     ${d.next_ex && d.next_ex >= today ? `<div class="hint">Next: own it before ${nice(d.next_ex)}${d.next_pay ? `, paid ${nice(d.next_pay)}` : ""}.</div>` : ""}</div>`;
 }
 
+// ---------------------------------------------------------------- ⚖️ compare
+// Put 2 to 4 symbols side by side: one chart where every line starts at 0%
+// (so a $4 stock and a $400 stock can be compared fairly), then a table with
+// their numbers next to each other. 🏆 marks the better value in each row.
+// The address holds the choice (#/compare/NVDA,AMD), so you can bookmark it.
+
+const CMP_MAX = 4;
+const CMP_COLORS = ["--cmp1", "--cmp2", "--cmp3", "--cmp4"];
+const RANGE_DAYS = { "1M": 31, "3M": 92, "6M": 183, "1Y": 366, "2Y": 732 };
+
+const cmpSaved = {
+  get() { try { return JSON.parse(localStorage.getItem("compare") || "[]"); } catch (e) { return []; } },
+  set(l) { try { localStorage.setItem("compare", JSON.stringify(l)); } catch (e) { /* ignore */ } },
+};
+
+// Which symbols to compare: from the address, else the last ones you compared.
+function compareList(arg) {
+  let files = arg ? decodeURIComponent(arg).split(",") : cmpSaved.get();
+  if (!arg && !files.length) {  // first visit: your first two favorites, else the first two stocks
+    const stocks = state.data.quotes.filter((x) => x.group === "stock").map((x) => x.symbol);
+    files = [...favs.list(), ...stocks].slice(0, 2);
+  }
+  const out = [];
+  for (const f of files) {
+    const q = state.data.quotes.find((x) => x.file === f || x.symbol === f);
+    if (q && !out.includes(q) && out.length < CMP_MAX) out.push(q);
+  }
+  return out;
+}
+const compareHref = (qs) => `#/compare/${qs.map((q) => q.file).join(",")}`;
+
+// A good first partner for one symbol: its market's index, or Bitcoin for coins.
+function comparePartner(q) {
+  const tags = q.tags || [];
+  const pick = q.group === "crypto" ? (q.symbol === "BTC-USD" ? "ETH-USD" : "BTC-USD")
+    : q.group === "index" ? (q.symbol === "^GSPC" ? "^IXIC" : "^GSPC")
+    : tags.includes("europe") ? (q.symbol.endsWith(".DE") ? "^GDAXI" : "^STOXX50E") : "^GSPC";
+  return quoteFor(pick) || state.data.quotes.find((x) => x !== q && x.group === q.group);
+}
+
+// --- numbers from the price history (candles: [date, open, high, low, close, volume])
+
+const closeOnOrBefore = (candles, iso) => {
+  for (let i = candles.length - 1; i >= 0; i--) if (candles[i][0] <= iso) return candles[i][4];
+  return null;
+};
+const isoMinus = (iso, days) => new Date(Date.parse(`${iso}T12:00:00Z`) - days * 86400000).toISOString().slice(0, 10);
+
+function backReturn(candles, days) {
+  const last = candles[candles.length - 1];
+  const from = isoMinus(last[0], days);
+  if (candles[0][0] > from) return null;  // not enough history
+  const base = closeOnOrBefore(candles, from);
+  return base ? (last[4] / base - 1) * 100 : null;
+}
+
+// Everything that depends on the chosen range (1M … 2Y).
+function rangeStats(candles, from, crypto) {
+  const c = candles.filter((x) => x[0] >= from);
+  if (c.length < 3) return {};
+  const rets = c.slice(1).map((x, i) => x[4] / c[i][4] - 1);
+  const mean = rets.reduce((s, r) => s + r, 0) / rets.length;
+  const sd = Math.sqrt(rets.reduce((s, r) => s + (r - mean) ** 2, 0) / (rets.length - 1));
+  let peak = c[0][4], maxDrop = 0;
+  for (const x of c) { peak = Math.max(peak, x[4]); maxDrop = Math.min(maxDrop, x[4] / peak - 1); }
+  return {
+    ret: (c[c.length - 1][4] / c[0][4] - 1) * 100,
+    vol: sd * Math.sqrt(crypto ? 365 : 252) * 100,   // "volatility": typical yearly swing
+    maxDrop: maxDrop * 100,
+    best: Math.max(...rets) * 100,
+    worst: Math.min(...rets) * 100,
+    upDays: rets.filter((r) => r > 0).length / rets.length * 100,
+  };
+}
+
+// How much two symbols move together, from -1 (opposite) to +1 (in lockstep).
+function correlation(a, b, from) {
+  const daily = (candles) => {
+    const m = new Map(), c = candles.filter((x) => x[0] >= from);
+    c.slice(1).forEach((x, i) => m.set(x[0], x[4] / c[i][4] - 1));
+    return m;
+  };
+  const A = daily(a), B = daily(b), xs = [], ys = [];
+  A.forEach((v, d) => { if (B.has(d)) { xs.push(v); ys.push(B.get(d)); } });
+  if (xs.length < 10) return null;
+  const mx = xs.reduce((s, v) => s + v, 0) / xs.length, my = ys.reduce((s, v) => s + v, 0) / ys.length;
+  let sxy = 0, sxx = 0, syy = 0;
+  xs.forEach((x, i) => { sxy += (x - mx) * (ys[i] - my); sxx += (x - mx) ** 2; syy += (ys[i] - my) ** 2; });
+  return sxx && syy ? sxy / Math.sqrt(sxx * syy) : null;
+}
+
+function yearHighLow(candles) {
+  const from = isoMinus(candles[candles.length - 1][0], 365);
+  const c = candles.filter((x) => x[0] >= from);
+  return { high: Math.max(...c.map((x) => x[2])), low: Math.min(...c.map((x) => x[3])) };
+}
+
+// --- the page
+
+function pageCompare(arg) {
+  const picked = compareList(arg);
+  cmpSaved.set(picked.map((q) => q.file));
+  const groups = [["📊 Indices", (x) => x.group === "index"],
+    ["🇺🇸 US stocks", (x) => x.group === "stock" && !(x.tags || []).includes("europe")],
+    ["🇪🇺 Europe", (x) => x.group === "stock" && (x.tags || []).includes("europe")],
+    ["₿ Crypto", (x) => x.group === "crypto"]];
+  const options = groups.map(([label, test]) => {
+    const items = state.data.quotes.filter(test);
+    return items.length ? `<optgroup label="${label}">${items.map((x) =>
+      `<option value="${esc(x.file)}" ${picked.includes(x) ? "disabled" : ""}>${esc(x.name)} (${esc(x.symbol)})</option>`).join("")}</optgroup>` : "";
+  }).join("");
+  const chips = picked.map((q, i) => `<span class="cmp-chip" style="--c:var(${CMP_COLORS[i]})">
+      <i class="dot"></i>${logo(q.symbol, q.name, "sm")}<b>${esc(q.symbol.replace(/-USD$/, ""))}</b>
+      <button data-cmp-remove="${esc(q.file)}" aria-label="Remove ${esc(q.name)}">✕</button></span>`).join("");
+  const adder = picked.length < CMP_MAX ? `<label class="cmp-add pill-btn">＋ Add<select id="cmp-add" aria-label="Add a symbol to compare">
+      <option value="" selected disabled>Pick a stock or coin</option>${options}</select></label>` : "";
+  const seg = `<div class="seg" data-seg="range">${Object.keys(RANGE_DAYS).map((o) =>
+    `<button data-v="${o}" class="${o === state.range ? "on" : ""}">${o}</button>`).join("")}</div>`;
+
+  if (picked.length < 2) {
+    return `<div class="cmp-pick">${chips}${adder}</div>
+      <div class="card empty">⚖️ Pick ${picked.length ? "one more" : "two or more"} stocks, coins or indices to see them side by side.
+        <div class="hint" style="margin-top:8px">Tip: on any stock's page, tap <b>⚖️ Compare</b>.</div></div>`;
+  }
+  return `<div class="cmp-pick">${chips}${adder}</div>
+    <div class="controls">${seg}</div>
+    <div class="card" style="padding:10px 6px 6px">
+      <div class="legend" id="cmp-legend">${picked.map((q, i) =>
+        `<span><i style="background:var(${CMP_COLORS[i]})"></i>${esc(q.name)}</span>`).join("")}</div>
+      <div class="readout num" id="readout">Every line starts at 0%. Touch the chart to see values.</div>
+      <div id="chart"></div>
+    </div>
+    <div id="cmp-summary"></div>
+    <div id="cmp-table"><div class="empty">Loading…</div></div>
+    <details class="card cmp-help"><summary>❓ What do these numbers mean?</summary>
+      <p><b>Change</b>: how much the price went up or down over that time.</p>
+      <p><b>Volatility</b>: how much the price usually swings in a year. Higher means a bumpier ride (more risk, more chance).</p>
+      <p><b>Biggest drop</b>: the worst fall from a high point in the chosen time. It shows how much pain you'd have felt.</p>
+      <p><b>Up days</b>: share of days that closed higher than the day before.</p>
+      <p><b>Below 1-year high</b>: how far the price is under its highest point of the last 12 months.</p>
+      <p><b>RSI</b>: above 70 often means "ran up fast, may cool off"; below 30 means "sold off hard, may bounce".</p>
+      <p><b>P/E</b>: share price ÷ yearly profit per share. "How many years of profit you pay for." Lower is cheaper, but fast growers usually have a high P/E. <b>Forward P/E</b> uses next year's expected profit.</p>
+      <p><b>P/S</b>: company value ÷ yearly sales. Useful when there's little profit yet.</p>
+      <p><b>Profit margin</b>: how many cents of every dollar of sales are kept as profit.</p>
+      <p><b>Sales growth</b>: sales compared with the same quarter a year ago.</p>
+      <p><b>Return on equity</b>: profit compared with the owners' money in the company. Higher means it uses money well.</p>
+      <p><b>Debt / equity</b>: debts compared with the owners' money (100 = equal). Lower is safer.</p>
+      <p><b>Beta</b>: how strongly it moves with the whole market. 1 = like the market, 2 = twice as strong.</p>
+      <p><b>Move together</b>: +1 means they always move the same way, 0 means no link. Owning two that move together doesn't spread your risk.</p>
+    </details>
+    <p class="disclaimer">🏆 marks the better number in a row, which is only one part of the picture.
+      Changes are in each symbol's own currency. Company numbers from Yahoo Finance, updated daily. Not financial advice.</p>`;
+}
+
+function fmtCap(v, cur) {
+  if (v == null) return "–";
+  const c = (cur || "$").trim();
+  const num = Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(v);
+  return c.length === 1 ? `${c}${num}` : `${num} ${c}`;
+}
+const RATING = { strong_buy: "🟢 Strong buy", buy: "🟢 Buy", hold: "🟡 Hold", underperform: "🔴 Under­perform", sell: "🔴 Sell", strong_sell: "🔴 Strong sell" };
+
+async function drawCompare(arg) {
+  const picked = compareList(arg);
+  const el = document.getElementById("chart");
+  if (picked.length < 2 || !el || !window.LightweightCharts) return;
+  const token = (drawCompare.token = (drawCompare.token || 0) + 1);
+  try {
+    await Promise.all(picked.map(async (q) => {
+      if (!historyCache[q.file]) historyCache[q.file] = (await getJSON(`data/history/${q.file}.json`)).candles;
+    }));
+  } catch (e) {
+    document.getElementById("cmp-table").innerHTML = `<div class="empty">Couldn't load the price history. Tap ↻ to retry.</div>`;
+    return;
+  }
+  if (token !== drawCompare.token || !document.body.contains(el)) return;  // you left the page meanwhile
+  const hist = picked.map((q) => historyCache[q.file]);
+  const lastDay = hist.map((c) => c[c.length - 1][0]).sort().pop();
+  const from = isoMinus(lastDay, RANGE_DAYS[state.range]);
+
+  // Chart: each line shows the % change since the first day of the range.
+  if (chart) { chart.remove(); chart = null; }
+  chart = LightweightCharts.createChart(el, {
+    autoSize: true,
+    layout: { background: { type: "solid", color: "transparent" }, textColor: cssVar("--ink-3"), fontSize: 11,
+      fontFamily: "-apple-system, BlinkMacSystemFont, Inter, sans-serif" },
+    grid: { vertLines: { visible: false }, horzLines: { color: cssVar("--chart-grid") } },
+    rightPriceScale: { borderVisible: false },
+    timeScale: { borderVisible: false, fixLeftEdge: true, fixRightEdge: true },
+    crosshair: { mode: 0, vertLine: { labelVisible: false }, horzLine: { labelVisible: true } },
+    localization: { priceFormatter: (v) => `${v > 0 ? "+" : ""}${v.toFixed(Math.abs(v) < 10 ? 1 : 0)}%` },
+    handleScale: false, handleScroll: false,
+  });
+  const series = picked.map((q, i) => {
+    const c = hist[i].filter((x) => x[0] >= from);
+    const s = chart.addLineSeries({ color: cssVar(CMP_COLORS[i]), lineWidth: 2, priceLineVisible: false,
+      lastValueVisible: true, crosshairMarkerRadius: 4 });
+    if (c.length) s.setData(c.map((x) => ({ time: x[0], value: (x[4] / c[0][4] - 1) * 100 })));
+    return s;
+  });
+  series[0].createPriceLine({ price: 0, color: cssVar("--ink-3"), lineWidth: 1, lineStyle: 2, axisLabelVisible: false });
+  chart.timeScale().fitContent();
+  const readout = document.getElementById("readout");
+  chart.subscribeCrosshairMove((p) => {
+    if (!p.time) { readout.textContent = "Every line starts at 0%. Touch the chart to see values."; return; }
+    readout.innerHTML = `${esc(p.time)} · ` + picked.map((q, i) => {
+      const d = p.seriesData.get(series[i]);
+      return d ? `<span style="color:var(${CMP_COLORS[i]})">●</span> ${esc(q.symbol.replace(/-USD$/, ""))} ${fmtPct(d.value)}` : "";
+    }).filter(Boolean).join(" · ");
+  });
+
+  // Table: one column per symbol.
+  const F = state.data.fundamentals || {}, divs = state.data.dividends || {};
+  const cols = picked.map((q, i) => {
+    const c = hist[i], f = F[q.symbol] || {}, hl = yearHighLow(c);
+    const d = divs[q.symbol], today = todayISO();
+    const paid = d?.history?.filter(([dt]) => dt > addDays(today, -365)) || [];
+    const latestDiv = d?.history?.length ? d.history[d.history.length - 1][1] : 0;
+    const price = current(q).price;
+    return {
+      q, f, price, ...rangeStats(c, from, q.group === "crypto"),
+      r1m: backReturn(c, 30), r3m: backReturn(c, 91), r6m: backReturn(c, 182), r1y: backReturn(c, 365), r2y: backReturn(c, 730),
+      fromHigh: hl.high ? (price / hl.high - 1) * 100 : null,
+      divYield: q.group === "stock" ? (latestDiv && paid.length && price ? latestDiv * paid.length / price * 100 : 0) : null,
+      upside: f.target && price ? (f.target / price - 1) * 100 : null,
+      sig: signalFor(q.symbol),
+      earn: (state.data.earnings || []).find((e) => e.symbol === q.symbol && daysUntil(e.date) >= 0),
+    };
+  });
+
+  // better: "high" or "low" wins a 🏆; omitted = no winner (just information).
+  const pct = (v) => v == null ? "–" : `<span class="${dir(v)}-text">${fmtPct(v)}</span>`;
+  const plain = (v, digits = 1, suffix = "") => v == null ? "–" : `${v.toFixed(digits)}${suffix}`;
+  const ratio = (v) => v == null ? "–" : `${(v * 100).toFixed(1)}%`;
+  const sections = [
+    ["📈 Price & change", [
+      ["Price", (x) => livePrice(x.q)],
+      ["Today", (x) => liveChange(x.q), "high", (x) => current(x.q).chg],
+      [`This range (${state.range})`, (x) => pct(x.ret), "high", (x) => x.ret],
+      ["1 month", (x) => pct(x.r1m), "high", (x) => x.r1m],
+      ["3 months", (x) => pct(x.r3m), "high", (x) => x.r3m],
+      ["6 months", (x) => pct(x.r6m), "high", (x) => x.r6m],
+      ["1 year", (x) => pct(x.r1y), "high", (x) => x.r1y],
+      ["2 years", (x) => pct(x.r2y), "high", (x) => x.r2y],
+    ]],
+    [`🎢 Risk (${state.range})`, [
+      ["Volatility", (x) => plain(x.vol, 0, "%"), "low", (x) => x.vol],
+      ["Biggest drop", (x) => pct(x.maxDrop), "high", (x) => x.maxDrop],
+      ["Best day", (x) => pct(x.best)],
+      ["Worst day", (x) => pct(x.worst), "high", (x) => x.worst],
+      ["Up days", (x) => plain(x.upDays, 0, "%"), "high", (x) => x.upDays],
+      ["Beta", (x) => plain(x.f.beta, 2)],
+    ]],
+    ["🔍 Trend", [
+      ["Below 1-year high", (x) => pct(x.fromHigh), "high", (x) => x.fromHigh],
+      ["vs 50-day avg", (x) => pct(x.q.vs_sma50)],
+      ["vs 200-day avg", (x) => pct(x.q.vs_sma200)],
+      ["RSI (14)", (x) => x.q.rsi14 == null ? "–" : `${x.q.rsi14.toFixed(0)}${x.q.rsi14 > 70 ? " 🔥" : x.q.rsi14 < 30 ? " 🧊" : ""}`],
+      ["Volume vs avg", (x) => plain(x.q.volume_ratio, 1, "×")],
+    ]],
+    ["🏢 Company & value", [
+      ["Market value", (x) => fmtCap(x.f.market_cap, x.q.currency)],
+      ["P/E", (x) => plain(x.f.pe, 1), "low", (x) => x.f.pe > 0 ? x.f.pe : null],
+      ["Forward P/E", (x) => plain(x.f.forward_pe, 1), "low", (x) => x.f.forward_pe > 0 ? x.f.forward_pe : null],
+      ["P/S", (x) => plain(x.f.ps, 1), "low", (x) => x.f.ps],
+      ["Profit margin", (x) => ratio(x.f.margin), "high", (x) => x.f.margin],
+      ["Sales growth", (x) => x.f.revenue_growth == null ? "–" : pct(x.f.revenue_growth * 100), "high", (x) => x.f.revenue_growth],
+      ["Return on equity", (x) => ratio(x.f.roe), "high", (x) => x.f.roe],
+      ["Debt / equity", (x) => plain(x.f.debt_equity, 0), "low", (x) => x.f.debt_equity],
+      ["Sector", (x) => esc(x.f.sector || (x.q.group === "crypto" ? "Crypto" : x.q.group === "index" ? "Index" : "–"))],
+    ]],
+    ["💰 Dividend", [
+      ["Yield", (x) => x.divYield == null ? "–" : x.divYield ? `${x.divYield.toFixed(2)}%` : "none", "high", (x) => x.divYield || null],
+    ]],
+    ["🤖 Opinions", [
+      ["AI signal today", (x) => x.sig ? `${SIGNAL_EMOJI[x.sig.action] || ""} ${esc(x.sig.label)}${x.sig.confidence ? `<div class="hint">${esc(x.sig.confidence)}</div>` : ""}` : "–"],
+      ["Analysts", (x) => x.f.rating ? `${RATING[x.f.rating] || esc(x.f.rating)}${x.f.analysts ? `<div class="hint">${x.f.analysts} analysts</div>` : ""}` : "–"],
+      ["Analyst target", (x) => x.upside == null ? "–" : `${fmtPrice(x.f.target, x.q.currency)}<div class="hint">${fmtPct(x.upside)} from now</div>`, "high", (x) => x.upside],
+      ["Next earnings", (x) => x.earn ? nice(x.earn.date, { day: "numeric", month: "short" }) : "–"],
+    ]],
+  ];
+  const head = `<tr><th></th>${cols.map((x, i) => `<th style="--c:var(${CMP_COLORS[i]})"><a href="#/s/${x.q.file}">
+      ${logo(x.q.symbol, x.q.name, "sm")}<span>${esc(x.q.symbol.replace(/-USD$/, ""))}</span></a></th>`).join("")}</tr>`;
+  const body = sections.map(([title, rows]) => {
+    const shown = rows.filter(([, show]) => cols.some((x) => show(x) !== "–"));
+    if (!shown.length) return "";
+    return `<tr class="sec"><th colspan="${cols.length + 1}">${title}</th></tr>` + shown.map(([label, show, better, val]) => {
+      const vals = better ? cols.map((x) => val(x)) : [];
+      const ok = vals.filter((v) => v != null && Number.isFinite(v));
+      const win = ok.length >= 2 && new Set(ok).size > 1 ? (better === "high" ? Math.max(...ok) : Math.min(...ok)) : null;
+      return `<tr><th>${label}</th>${cols.map((x, i) => `<td class="num ${win != null && vals[i] === win ? "best" : ""}">${show(x)}</td>`).join("")}</tr>`;
+    }).join("");
+  }).join("");
+  document.getElementById("cmp-table").innerHTML = `<div class="cmp-wrap"><table class="cmp">${head}${body}</table></div>`;
+
+  // A few plain sentences on top.
+  const lines = [];
+  const byRet = cols.filter((x) => x.ret != null).sort((a, b) => b.ret - a.ret);
+  const nm = (x) => `<b>${esc(x.q.name)}</b>`;
+  if (byRet.length >= 2) {
+    const top = byRet[0], low = byRet[byRet.length - 1];
+    lines.push(`📈 Over ${state.range}, ${nm(top)} did best (${fmtPct(top.ret)})${byRet.length > 1 ? `, ${nm(low)} did worst (${fmtPct(low.ret)})` : ""}.`);
+  }
+  const byVol = cols.filter((x) => x.vol).sort((a, b) => a.vol - b.vol);
+  if (byVol.length >= 2) {
+    const calm = byVol[0], wild = byVol[byVol.length - 1], k = wild.vol / calm.vol;
+    if (k >= 1.2) lines.push(`🎢 ${nm(wild)} swings about ${k.toFixed(1)}× as much as ${nm(calm)}, so it's the bumpier ride.`);
+    else lines.push(`🎢 They swing about the same amount.`);
+  }
+  if (cols.length === 2) {
+    const r = correlation(hist[0], hist[1], from);
+    if (r != null) lines.push(`🔗 Move together: <b>${r.toFixed(2)}</b>. ${r > 0.7 ? "They mostly rise and fall together." : r > 0.4 ? "They often move the same way." : r > 0.1 ? "They're only loosely linked." : r > -0.1 ? "They move independently." : "They tend to move in opposite directions."}`);
+  } else {
+    const pairs = [];
+    for (let i = 0; i < cols.length; i++) for (let j = i + 1; j < cols.length; j++) {
+      const r = correlation(hist[i], hist[j], from);
+      if (r != null) pairs.push(`${esc(cols[i].q.symbol.replace(/-USD$/, ""))}–${esc(cols[j].q.symbol.replace(/-USD$/, ""))} <b>${r.toFixed(2)}</b>`);
+    }
+    if (pairs.length) lines.push(`🔗 Move together (1 = always): ${pairs.join(" · ")}`);
+  }
+  document.getElementById("cmp-summary").innerHTML = lines.length ? `<div class="card cmp-summary">${lines.map((l) => `<p>${l}</p>`).join("")}</div>` : "";
+}
+
+view.addEventListener("change", (e) => {
+  if (e.target.id !== "cmp-add" || !e.target.value) return;
+  const picked = compareList(location.hash.split("/")[2]);
+  const q = state.data.quotes.find((x) => x.file === e.target.value);
+  if (q) location.hash = compareHref([...picked, q]);
+});
+view.addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-cmp-remove]");
+  if (!b) return;
+  const picked = compareList(location.hash.split("/")[2]).filter((q) => q.file !== b.dataset.cmpRemove);
+  location.hash = picked.length ? compareHref(picked) : "#/compare/-";
+});
+
 // ---------------------------------------------------------------- router
 
 function render() {
@@ -1823,7 +2161,7 @@ function render() {
   const [, page, arg] = hash.split("/");
   const tab = page === "s" ? "watchlist" : page || "today";
   if (tab !== state.lastTab) { shownCount = {}; state.lastTab = tab; }  // lists start short again on a new tab
-  const titles = { today: "Today", watchlist: "Watchlist", news: "News", videos: "Videos", record: "Track record", settings: "Settings", portfolio: "Portfolio", inbox: "Inbox" };
+  const titles = { compare: "Compare", today: "Today", watchlist: "Watchlist", news: "News", videos: "Videos", record: "Track record", settings: "Settings", portfolio: "Portfolio", inbox: "Inbox" };
   document.getElementById("bell-btn")?.classList.toggle("active", tab === "inbox");
   document.getElementById("page-title").textContent = page === "s" ? "" : titles[tab];
   document.querySelectorAll(".tabbar a").forEach((a) => a.classList.toggle("active", a.dataset.tab === tab));
@@ -1832,6 +2170,9 @@ function render() {
     if (state.inboxSeenBefore == null) state.inboxSeenBefore = inboxSeen.get();  // keep "new" dots during this visit
     view.innerHTML = arg ? pageInboxItem(decodeURIComponent(arg)) : pageInbox();
     markInboxRead();
+  } else if (page === "compare") {
+    view.innerHTML = pageCompare(arg);
+    drawCompare(arg);
   } else if (page === "s") {
     view.innerHTML = pageDetail(decodeURIComponent(arg || ""));
     const q = state.data.quotes.find((x) => x.file === arg);
