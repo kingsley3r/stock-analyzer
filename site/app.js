@@ -423,6 +423,27 @@ function newsLogo(n) {
   return sym ? logo(sym, quoteFor(sym)?.name, "sm") : siteIcon(n.link);
 }
 
+// ---------------------------------------------------------------- "Show more" for long lists
+// Long lists start with a few rows. A button under the list shows the next batch,
+// and "Show less" folds it back. How far you opened a list is remembered until you
+// switch to another tab.
+let shownCount = {};
+// "older" swaps "Show 10 more" for "Show 10 older messages" (used by the inbox).
+function limited(key, items, first = 5, step = 10, older = false) {
+  const n = Math.max(first, shownCount[key] ?? first);
+  const left = items.length - n;
+  let more = "";
+  if (left > 0) {
+    const next = Math.min(step, left), all = next === left;
+    const what = older ? `${all ? `all ${left}` : next} older message${next === 1 ? "" : "s"}` : `${all ? `all ${left}` : next} more`;
+    more = `<button class="show-more" data-more="${esc(key)}" data-n="${n + next}">
+      Show ${what}${all ? "" : ` <span>(${left} left)</span>`} ⌄</button>`;
+  } else if (n > first && items.length > first) {
+    more = `<button class="show-more" data-more="${esc(key)}" data-n="${first}">Show less ⌃</button>`;
+  }
+  return { items: items.slice(0, n), more };
+}
+
 function pageNews() {
   const all = state.data.news;
   const cryptoWords = /bitcoin|crypto|ethereum|solana|btc|eth\b|coin/i;
@@ -434,12 +455,13 @@ function pageNews() {
   };
   const items = all.filter(filters[state.newsFilter]);
   const btn = (k, label) => `<button data-filter="${k}" class="${state.newsFilter === k ? "on" : ""}">${label}</button>`;
+  const page = limited(`news-${state.newsFilter}`, items, 10, 10);
   return `<div class="filters">${btn("all", "All")}${btn("mine", "📈 My stocks")}${btn("ai", "🤖 AI")}${btn("crypto", "₿ Crypto")}</div>
-    <div class="list">${items.length ? items.map((n) => `
+    <div class="list">${items.length ? page.items.map((n) => `
       <a class="news-item" href="${esc(n.link)}" target="_blank" rel="noopener">
         ${newsLogo(n)}<div class="nbody"><div class="meta">${esc(n.source.replace(/^Yahoo \(.*\)$/, "Yahoo Finance"))} · ${timeAgo(n.ts)}${newsSymbol(n) ? `<span class="tag">${esc(newsSymbol(n))}</span>` : ""}</div>
         <div class="title">${esc(n.title)}</div></div>
-      </a>`).join("") : `<div class="empty">No articles for this filter.</div>`}</div>`;
+      </a>`).join("") : `<div class="empty">No articles for this filter.</div>`}</div>${page.more}`;
 }
 
 const compact = (n) => n == null ? "–" : Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(n);
@@ -464,8 +486,9 @@ function pageVideos() {
   const btn = (k, label) => `<button data-vsort="${k}" class="${(state.videoSort || "new") === k ? "on" : ""}">${label}</button>`;
   const when = (ts) => new Date(ts * 1000).toLocaleString("en-GB", { timeZone: TZ, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
+  const page = limited(`videos-${state.videoSort || "new"}`, list, 6, 6);
   return `<div class="filters">${btn("new", "🕒 Newest")}${btn("views", "👁 Most viewed")}${btn("hot", "🔥 Trending")}</div>
-    <div class="list">${list.length ? list.map((x) => `
+    <div class="list">${list.length ? page.items.map((x) => `
       <a class="video" href="${esc(x.link)}" target="_blank" rel="noopener">
         <div class="thumb">${x.id ? `<img loading="lazy" alt="" src="https://i.ytimg.com/vi/${esc(x.id)}/mqdefault.jpg">` : ""}
           ${x.trending ? `<span class="hot">🔥 Trending</span>` : ""}</div>
@@ -476,7 +499,7 @@ function pageVideos() {
           <div class="meta num">👁 ${compact(x.views)} views · 👍 ${compact(x.likes)}${x.views ? ` · ${compact(Math.round(x.perHour))}/h` : ""}</div>
           ${x.description ? `<div class="desc">${esc(x.description)}</div>` : ""}
         </div>
-      </a>`).join("") : `<div class="empty">No new videos in the last 3 days.</div>`}</div>
+      </a>`).join("") : `<div class="empty">No new videos in the last 3 days.</div>`}</div>${page.more}
     <p class="disclaimer">Last 3 days from your channels. Add channels in config/sources.yaml.</p>`;
 }
 
@@ -498,7 +521,7 @@ function pageRecord() {
     </div>`;
   const icon = { right: "✅", wrong: "❌", pending: "⏳", info: "➖" };
   const cell = (v) => `<span class="${dir(v)}-text num">${v == null ? "·" : fmtPct(v)}</span>`;
-  const days = [...new Set(r.items.map((i) => i.date))];
+  const days = limited("record-days", [...new Set(r.items.map((i) => i.date))], 3, 5);
   const dayLabel = (d) => new Date(d + "T12:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 
   return `
@@ -509,7 +532,7 @@ function pageRecord() {
     <p class="explain">A <b>BUY</b> counts as ✅ right if the price is higher one week later.
       A <b>SELL</b> or <b>DON'T BUY</b> is right if the price is lower. HOLD and WATCH are shown but not scored.
       Changes are measured from the last closing price before the signal. Tracking since ${esc(dayLabel(r.since))}.</p>
-    ${days.map((d) => `
+    ${days.items.map((d) => `
       <h2 class="section-title">${esc(dayLabel(d))}</h2>
       <div class="list">
         <div class="rec-row rec-head"><span></span><span>1 day</span><span>1 week</span><span>1 month</span><span></span></div>
@@ -522,7 +545,7 @@ function pageRecord() {
             <span title="${i.result}">${icon[i.result]}</span>
           </a>`;
         }).join("")}
-      </div>`).join("")}
+      </div>`).join("")}${days.more}
     <p class="disclaimer">Past results don't guarantee future results.</p>`;
 }
 
@@ -1168,6 +1191,7 @@ function pagePortfolio() {
 
 function myPortfolio() {
   const h = holdings();
+  const myTrades = limited("my-trades", h.trades.slice().reverse(), 5, 10);
   const totalCards = h.totals.filter((t) => t.cost || t.realized).map((t) => {
     const pct = t.cost ? t.unrealized / t.cost * 100 : null, dayPct = t.value - t.day ? t.day / (t.value - t.day) * 100 : null;
     return `<div class="card pf-total">
@@ -1218,12 +1242,12 @@ function myPortfolio() {
     </form>
     ${state.editError ? `<p class="lock-error" style="margin:10px 4px 0">${esc(state.editError)}</p>` : ""}
 
-    ${h.trades.length ? `<h2 class="section-title">🧾 Your trades</h2><div class="list">${h.trades.slice().reverse().map((x) => `
+    ${h.trades.length ? `<h2 class="section-title">🧾 Your trades</h2><div class="list">${myTrades.items.map((x) => `
       <div class="row edit-row">${logo(x.symbol, x.name, "sm")}
         <div class="who"><div class="t">${x.side === "sell" ? "🔴 Sold" : "🟢 Bought"} ${+Number(x.shares).toFixed(6)} ${esc(x.symbol)}</div>
           <div class="s">${nice(x.date, { day: "numeric", month: "short", year: "numeric" })} · ${fmtPrice(Number(x.price), quoteFor(x.symbol)?.currency ?? guessCurrency(x.symbol))} each</div></div>
         <button class="mv" data-trade-edit="${esc(x.id)}" aria-label="Edit">✏️</button>
-        <button class="remove" data-trade-del="${esc(x.id)}" aria-label="Delete">✕</button></div>`).join("")}</div>` : ""}
+        <button class="remove" data-trade-del="${esc(x.id)}" aria-label="Delete">✕</button></div>`).join("")}</div>${myTrades.more}` : ""}
 
     <div class="card backup">
       <p class="hint">🔒 Your trades are saved only on this phone, never online. Make a backup now and then:</p>
@@ -1242,6 +1266,7 @@ function paperView() {
       <div class="who"><div class="t">${esc(x.name)}</div><div class="s">${nice(x.entry_date, { day: "numeric", month: "short" })} at ${fmtPrice(x.entry_price, q?.currency ?? "")}</div></div>
       <div class="price"><div class="p num">${money(x.value)}</div><span class="pill ${dir(x.pnl)} num">${signedMoney(x.pnl)} · ${fmtPct(x.pnl_pct)}</span></div></a>`;
   };
+  const closed = limited("paper-closed", p.trades, 5, 10);
   const why = { "signal": "SELL signal", "stop-loss": "stop-loss", "take-profit": "take profit" };
   return `
     <div class="card pf-total">
@@ -1260,10 +1285,10 @@ function paperView() {
       or automatically at −${r.stop_loss}% (stop-loss) or +${r.take_profit}% (take profit).</p>
     <h2 class="section-title">📦 Open positions</h2>
     ${p.positions.length ? `<div class="list">${p.positions.map(posRow).join("")}</div>` : `<div class="card empty">No open positions. The next 🟢 BUY signal opens one.</div>`}
-    ${p.trades.length ? `<h2 class="section-title">🧾 Closed trades</h2><div class="list">${p.trades.map((t) => `
+    ${p.trades.length ? `<h2 class="section-title">🧾 Closed trades</h2><div class="list">${closed.items.map((t) => `
       <div class="row">${logo(t.symbol, t.name, "sm")}
         <div class="who"><div class="t">${esc(t.name)}</div><div class="s">${nice(t.entry_date, { day: "numeric", month: "short" })} → ${nice(t.exit_date, { day: "numeric", month: "short" })} · ${why[t.reason] || t.reason}</div></div>
-        <span class="pill ${dir(t.pnl)} num">${signedMoney(t.pnl)} · ${fmtPct(t.pnl_pct)}</span></div>`).join("")}</div>` : ""}
+        <span class="pill ${dir(t.pnl)} num">${signedMoney(t.pnl)} · ${fmtPct(t.pnl_pct)}</span></div>`).join("")}</div>${closed.more}` : ""}
     <p class="disclaimer">Amounts are treated as dollars for every market; currency moves are ignored.</p>`;
 }
 
@@ -1316,12 +1341,13 @@ function whenLabel(ev) {
 function earningsSection() {
   const soon = (state.data.earnings || []).filter((e) => daysUntil(e.date) >= 0 && daysUntil(e.date) <= 14);
   if (!soon.length) return "";
-  return `<h2 class="section-title">📅 Earnings soon</h2><div class="list">${soon.map((ev) => {
+  const page = limited("earnings", soon, 5, 10);
+  return `<h2 class="section-title">📅 Earnings soon</h2><div class="list">${page.items.map((ev) => {
     const q = quoteFor(ev.symbol), d = daysUntil(ev.date);
     return `<a class="row" href="${q ? `#/s/${q.file}` : "#/watchlist"}">${logo(ev.symbol, ev.name)}
       <div class="who"><div class="t">${esc(ev.name)}</div><div class="s">${nice(ev.date)}${WHEN_SHORT[ev.hour] ? ` · ${WHEN_SHORT[ev.hour]}` : ""}</div></div>
       <span class="badge ${d <= 1 ? "hold" : "watch"}">${whenLabel(ev)}</span></a>`;
-  }).join("")}</div>`;
+  }).join("")}</div>${page.more}`;
 }
 
 function earningsLine(q) {
@@ -1520,8 +1546,11 @@ function pageInbox() {
       <div class="who"><div class="t">${esc(i.title)}</div><div class="s">${esc(plain(i.html).slice(0, 140))}</div></div>
       <div class="when">${timeAgo(new Date(i.ts).getTime() / 1000)}${i.id > seen ? `<span class="dot-new" aria-label="new"></span>` : ""}</div></a>`;
   };
+  // New (unread) messages always show; older ones wait behind "Show more".
+  const unread = shown.filter((i) => i.id > seen).length;
+  const page = limited(`inbox-${f}`, shown, Math.max(5, unread), 10, true);
   return `${pushNudge()}${seg}
-    ${shown.length ? `<div class="list">${shown.map(rowHtml).join("")}</div>`
+    ${shown.length ? `<div class="list">${page.items.map(rowHtml).join("")}</div>${page.more}`
       : `<div class="card empty">Nothing here yet. Alerts, your morning digest and the evening recap will show up here.</div>`}
     <p class="disclaimer">Messages are kept for 30 days.</p>`;
 }
@@ -1740,6 +1769,7 @@ function dividendView() {
   });
   const perMonth = months.map((m) => payments.filter((p) => p.r.cur === main?.cur && p.pay.startsWith(m)).reduce((s, p) => s + p.total, 0));
   const max = Math.max(...perMonth, 0.0001);
+  const nextPay = limited("div-payments", payments, 5, 10);
   const totals = curs.map((c) => `<div class="card pf-total">
       <div class="k">💰 Expected dividends · next 12 months${curs.length > 1 ? ` · ${esc(c.cur.trim())}` : ""}</div>
       <div class="big num">${money(c.total, c.cur)}</div>
@@ -1764,7 +1794,7 @@ function dividendView() {
       <div class="price"><div class="p num">${money(h.year, h.r.cur)}</div><span class="hint">a year</span></div></div>`;
   return `${totals || `<div class="card empty">None of your holdings is expected to pay a dividend in the next 12 months.</div>`}
     ${chart}
-    ${payments.length ? `<h2 class="section-title">📅 Next payments</h2><div class="list">${payments.slice(0, 12).map(payRow).join("")}</div>` : ""}
+    ${payments.length ? `<h2 class="section-title">📅 Next payments</h2><div class="list">${nextPay.items.map(payRow).join("")}</div>${nextPay.more}` : ""}
     ${perHolding.length ? `<h2 class="section-title">📦 Per holding</h2><div class="list">${perHolding.map(holdRow).join("")}</div>` : ""}
     ${none.length ? `<p class="hint rules">No dividends: ${none.map((r) => esc(r.name)).join(", ")}.</p>` : ""}
     ${missing.length ? `<p class="hint rules">⚠️ Add ${missing.map((r) => esc(r.symbol)).join(", ")} to your watchlist to see ${missing.length > 1 ? "their" : "its"} dividends.</p>` : ""}
@@ -2130,6 +2160,7 @@ function render() {
   const hash = location.hash || "#/";
   const [, page, arg] = hash.split("/");
   const tab = page === "s" ? "watchlist" : page || "today";
+  if (tab !== state.lastTab) { shownCount = {}; state.lastTab = tab; }  // lists start short again on a new tab
   const titles = { compare: "Compare", today: "Today", watchlist: "Watchlist", news: "News", videos: "Videos", record: "Track record", settings: "Settings", portfolio: "Portfolio", inbox: "Inbox" };
   document.getElementById("bell-btn")?.classList.toggle("active", tab === "inbox");
   document.getElementById("page-title").textContent = page === "s" ? "" : titles[tab];
@@ -2163,6 +2194,12 @@ view.addEventListener("click", (e) => {
   if (b.dataset.act === "save-settings") { saveSettings(); return; }
   if (b.dataset.act === "reorder") { state.reorder = true; render(); return; }
   if (b.dataset.act === "reorder-done") { state.reorder = false; render(); return; }
+  if (b.dataset.more) {
+    const scroll = window.scrollY;
+    shownCount[b.dataset.more] = Number(b.dataset.n);
+    render(); window.scrollTo(0, scroll);
+    return;
+  }
   if (b.dataset.filter) { state.newsFilter = b.dataset.filter; render(); }
   if (b.dataset.vsort) { state.videoSort = b.dataset.vsort; render(); }
   if (b.dataset.remove) { state.draft = state.draft.filter((i) => i.symbol !== b.dataset.remove); render(); }

@@ -445,6 +445,14 @@ label.pill-btn { cursor: pointer; }
 .row .who .s.wrap { white-space: normal; }
 .inbox-row .who .t { white-space: normal; }
 
+/* "Show more" under long lists */
+.show-more {
+  display: block; width: 100%; margin-top: 8px; padding: 11px 12px; border: 0; border-radius: var(--radius);
+  background: var(--card); color: var(--info); font-size: 15px; font-weight: 600; cursor: pointer;
+}
+.show-more span { color: var(--ink-3); font-weight: 400; }
+.show-more:active { opacity: .7; }
+
 /* ---------- ⚖️ Compare ---------- */
 :root { --cmp1: #2a78d6; --cmp2: #eb6834; --cmp3: #8e5bd8; --cmp4: #12a39a; }
 @media (prefers-color-scheme: dark) {
