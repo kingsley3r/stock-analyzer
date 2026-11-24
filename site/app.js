@@ -8,6 +8,7 @@
 //        #/news        News         #/videos      Videos
 //        #/s/NVDA      Detail page with a chart for one symbol
 //        #/compare/NVDA,AMD   Two to four symbols side by side
+//        #/calc/VWCE.DE       ETF calculator (in calc.js), shown under Portfolio
 //   3. Each page is a function that returns HTML, which we put into <main id="view">.
 
 const TZ = "Europe/Istanbul";
@@ -572,7 +573,8 @@ function pageDetail(file) {
       <div class="chg num">${liveChange(q)} today ${q.live ? `<span class="live-tag" data-livetag="${esc(q.symbol)}">${live.prices[q.symbol] ? "● LIVE" : "○ connecting"}</span>` : `· last price ${esc(q.last_date)}, may be delayed`}</div>
     </div>
     ${sig ? `<div style="margin-top:12px">${signalCard(sig)}</div>` : ""}
-    <a class="pill-btn cmp-btn" href="${compareHref([q, comparePartner(q)].filter(Boolean))}">⚖️ Compare with others</a>
+    <div class="btn-row"><a class="pill-btn cmp-btn" href="${compareHref([q, comparePartner(q)].filter(Boolean))}">⚖️ Compare with others</a>
+      ${calcIsEtf(q) ? `<a class="pill-btn cmp-btn" href="#/calc/${encodeURIComponent(q.file)}">🧮 What if I invest?</a>` : ""}</div>
     ${earningsLine(q)}
     ${dividendLine(q)}
     ${fundCard(q)}
@@ -1191,8 +1193,9 @@ function pagePortfolio() {
   const seg = `<div class="seg wide" data-seg="pf">
       <button data-v="mine" class="${tab === "mine" ? "on" : ""}">💼 Mine</button>
       <button data-v="div" class="${tab === "div" ? "on" : ""}">💰 Dividends</button>
-      <button data-v="paper" class="${tab === "paper" ? "on" : ""}">🧪 Paper</button></div>`;
-  return seg + (tab === "paper" ? paperView() : tab === "div" ? dividendView() : myPortfolio());
+      <button data-v="paper" class="${tab === "paper" ? "on" : ""}">🧪 Paper</button>
+      <button data-v="calc" class="${tab === "calc" ? "on" : ""}">🧮 Calc</button></div>`;
+  return seg + (tab === "calc" ? calcView() : tab === "paper" ? paperView() : tab === "div" ? dividendView() : myPortfolio());
 }
 
 function myPortfolio() {
@@ -1455,7 +1458,10 @@ view.addEventListener("click", (e) => {
   if (b.dataset.act === "trade-cancel") { state.tradeEdit = null; render(); }
   if (b.dataset.act === "pf-export") exportTrades();
   const seg = b.closest("[data-seg]");
-  if (seg?.dataset.seg === "pf") { state.pfTab = b.dataset.v; render(); }
+  if (seg?.dataset.seg === "pf") {
+    state.pfTab = b.dataset.v;
+    if (location.hash.startsWith("#/calc")) location.hash = "#/portfolio"; else render();
+  }
   if (seg?.dataset.seg === "side") {
     document.getElementById("tr-side").value = b.dataset.v;
     seg.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
@@ -2279,7 +2285,7 @@ function render() {
   if (document.getElementById("lock-form")) return;
   const hash = location.hash || "#/";
   const [, page, arg] = hash.split("/");
-  const tab = page === "s" ? "watchlist" : page || "today";
+  const tab = page === "s" ? "watchlist" : page === "calc" ? "portfolio" : page || "today";
   if (tab !== state.lastTab) { shownCount = {}; state.lastTab = tab; }  // lists start short again on a new tab
   const titles = { compare: "Compare", today: "Today", watchlist: "Watchlist", news: "News", videos: "Videos", record: "Track record", settings: "Settings", portfolio: "Portfolio", inbox: "Inbox" };
   document.getElementById("bell-btn")?.classList.toggle("active", tab === "inbox");
@@ -2293,6 +2299,10 @@ function render() {
   } else if (page === "compare") {
     view.innerHTML = pageCompare(arg);
     drawCompare(arg);
+  } else if (page === "calc") {
+    state.pfTab = "calc";
+    view.innerHTML = pagePortfolio();
+    openCalc(decodeURIComponent(arg || ""));
   } else if (page === "s") {
     view.innerHTML = pageDetail(decodeURIComponent(arg || ""));
     const q = state.data.quotes.find((x) => x.file === arg);
@@ -2300,6 +2310,7 @@ function render() {
   } else {
     view.innerHTML = { today: pageToday, watchlist: pageWatchlist, news: pageNews, videos: pageVideos, record: pageRecord, settings: pageSettings, portfolio: pagePortfolio }[tab]();
     if (tab === "settings") fillPushCard();
+    if (tab === "portfolio" && state.pfTab === "calc") openCalc();
   }
   if (page !== "inbox") state.inboxSeenBefore = null;
   tickClocks();

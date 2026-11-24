@@ -173,6 +173,12 @@ reloads itself once.
   and an after-tax estimate (27.5 % Austrian KESt, `dividends: tax_pct` in `config/settings.yaml`).
   Uses the last 12 months of payments from Yahoo Finance (`analyzer/dividends.py`, fetched once a
   day). Only stocks on your watchlist have dividend data. Each stock page also shows its dividend.
+- **💼 Portfolio tab → 🧮 Calc (ETF calculator):** what a one-time amount plus a monthly savings plan
+  in an ETF could grow to. Pick a popular ETF or one from your watchlist, set the years, expected
+  return and yearly cost (TER), reinvest or pay out dividends, and optionally Austrian tax (27.5 % KESt)
+  and inflation. Shows the estimate, a "bad years / good years" range (±3 % a year), a growth chart and
+  a year-by-year table. ETF pages have a **🧮 What if I invest?** button. It is an estimate, not a
+  promise. Runs only on your phone (`site/calc.js`); your inputs are remembered on that phone.
 - **🔔 Price alerts:** on a stock's page, add "goes above / below" targets; you get a notification when it
   happens. Under ⚙️ Settings you choose the big-move alert (default: stocks ±5 %, coins ±8 % in a day).
   Targets are saved encrypted with your dashboard password (`config/price_alerts.json`). Checked every
